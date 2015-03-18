@@ -252,7 +252,7 @@ class Level:
 
 #-----------------------------------------------------------------------
 
-## Represents an object that has a position and a circular shape. The
+## Represents an object that has a position and a rectangular shape. The
 #  object can be moved with collision detections.
 
 class Movable(object):
@@ -261,8 +261,10 @@ class Movable(object):
     self.position_x = 0.0
     ## y position of the center in tiles (float)
     self.position_y = 0.0
-    ## object diameter in pixels
-    self.diameter = 30
+    ## object width in tiles (float)
+    self.width = 0.4
+    ## object height in tiles (float)
+    self.height = 0.8
     ## reference to a level in which the object is placed (for colision
     #  detection)
     self.level = None
@@ -274,8 +276,83 @@ class Movable(object):
   #  @param dy position difference in y, in tiles (float)
 
   def move_by(self, dx, dy):
-    self.position_x += dx
-    self.position_y += dy
+    half_width = self.width / 2.0
+    half_height = self.height / 2.0
+
+    # occupied cells in format (x1,y1,x2,y2)
+    occupied_cells = (int(self.position_x - half_width),int(self.position_y - half_height),int(self.position_x + half_width),int(self.position_y + half_height))
+
+    # distances to nearest obstacles:
+    distance_x = 0
+    distance_y = 0
+
+    if dx > 0:
+      minimum = 65536
+
+      for i in range(occupied_cells[1],occupied_cells[3] + 1):
+        value = 65536
+
+        for j in range(occupied_cells[2] + 1,occupied_cells[2] + 3):  # checks the following two cells
+          if MapGridObject.is_tile(self.level.get_at(j,i)):
+            value = j
+            break
+
+        if value < minimum:
+          minimum = value
+
+      distance_x = minimum - (self.position_x + half_width)
+    elif dx < 0:
+      maximum = -2048
+
+      for i in range(occupied_cells[1],occupied_cells[3] + 1):
+        value = -2048
+
+        for j in range(occupied_cells[0] - 1,occupied_cells[0] - 3,-1):
+          if MapGridObject.is_tile(self.level.get_at(j,i)):
+            value = j
+            break
+
+        if value > maximum:
+          maximum = value
+
+      distance_x = (maximum + 1) - (self.position_x - half_width)
+
+    if dy > 0:
+      minimum = 65536
+
+      for i in range(occupied_cells[0],occupied_cells[2] + 1):
+        value = 65536
+
+        for j in range(occupied_cells[3] + 1,occupied_cells[3] + 3):  # checks the following two cells
+          if MapGridObject.is_tile(self.level.get_at(i,j)):
+            value = j
+            break
+
+        if value < minimum:
+          minimum = value
+
+      distance_y = minimum - (self.position_y + half_height)
+    elif dy < 0:
+      maximum = -2048
+
+      for i in range(occupied_cells[0],occupied_cells[2] + 1):
+        value = -2048
+
+        for j in range(occupied_cells[1] - 1,occupied_cells[1] - 3,-1):
+          if MapGridObject.is_tile(self.level.get_at(i,j)):
+            value = j
+            break
+
+        if value > maximum:
+          maximum = value
+
+      distance_y = (maximum + 1) - (self.position_y - half_height)
+
+    if abs(distance_x) > abs(dx):
+      self.position_x += dx
+
+    if abs(distance_y) > abs(dy):
+      self.position_y += dy
 
   def __init__(self, level):
     self.__init_attributes()
@@ -334,10 +411,10 @@ class CharacterImageContainer:
 class Renderer:
   TILE_WIDTH = 200
   TILE_HEIGHT = 200
-  TOP_LAYER_OFFSET = 20
+  TOP_LAYER_OFFSET = 10
   TOP_LAYER_LEFT_WIDTH = 23
   DUCK_CENTER_X = 100
-  DUCK_CENTER_Y = 100
+  DUCK_CENTER_Y = 110
 
   def __init_attributes(self):
     ## reference to a level being rendered
@@ -405,10 +482,6 @@ class Renderer:
     self.background_image = prepare_image(pygame.image.load("resources/background_" + self._level.background_name + ".bmp"))
 
     self.background_repeat_times = int(math.ceil(self.screen_width / float(self.background_image.get_width())))
-
-    print(self.screen_width)
-    print(self.background_image.get_width())
-    print(self.screen_width / self.background_image.get_width())
 
     # load the tile images:
     for tile in level.tiles:
@@ -482,9 +555,6 @@ class Renderer:
           if map_grid_object.object_type == MapGridObject.OBJECT_TILE:
             result.blit(self.tile_images[map_grid_object.tile_id][map_grid_object.tile_variant],(x,y))
 
-            #print(map_grid_object.tile_variant)
-            #result.blit(self.tile_images[map_grid_object.tile_id][map_grid_object.tile_variant],(x,y))
-
             top_layer = self.__get_top_layer(i,j)
 
             if top_layer[0]:   # left
@@ -520,8 +590,6 @@ class Renderer:
 
     self.visible_tile_area = (helper_x,helper_y,helper_x + self.screen_width_tiles,helper_y + self.screen_height_tiles)
 
-    print(self.visible_tile_area)
-
   def __init__(self, screen_width, screen_height):
     self.__init_attributes()
     self.screen_width = screen_width
@@ -546,27 +614,47 @@ renderer.set_level(l)
 cam_x = 0;
 cam_y = 0;
 
+key_up = False
+key_down = False
+key_left = False
+key_right = False
+
 while 1:
   for event in pygame.event.get():
     if event.type == pygame.QUIT: sys.exit()
 
     if event.type == pygame.KEYDOWN:
       if event.key == pygame.K_RIGHT:
-        l.player.move_by(0.5,0)
-        print("r")
+        key_right = True
       elif event.key == pygame.K_LEFT:
-        print("l")
-        l.player.move_by(-0.5,0)
+        key_left = True
       elif event.key == pygame.K_UP:
-        print("u")
-        l.player.move_by(0,-0.5)
+        key_up = True
       elif event.key == pygame.K_DOWN:
-        print("d")
-        l.player.move_by(0,0.5)
+        key_down = True
+    elif event.type == pygame.KEYUP:
+      if event.key == pygame.K_RIGHT:
+        key_right = False
+      elif event.key == pygame.K_LEFT:
+        key_left = False
+      elif event.key == pygame.K_UP:
+        key_up = False
+      elif event.key == pygame.K_DOWN:
+        key_down = False
 
-      renderer.set_camera_position(int(l.player.position_x * Renderer.TILE_WIDTH),int(l.player.position_y * Renderer.TILE_HEIGHT))
+  if key_right:
+    l.player.move_by(0.01,0)
 
-      #renderer.set_camera_position(cam_x,cam_y)
+  if key_left:
+    l.player.move_by(-0.01,0)
+
+  if key_up:
+    l.player.move_by(0,-0.01)
+
+  if key_down:
+    l.player.move_by(0,0.01)
+
+  renderer.set_camera_position(int(l.player.position_x * Renderer.TILE_WIDTH),int(l.player.position_y * Renderer.TILE_HEIGHT))
 
   screen.blit(renderer.render_level(),(0,0))
   pygame.display.flip()
