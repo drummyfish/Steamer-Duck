@@ -70,7 +70,7 @@ class MapGridObject:
 
   @staticmethod
   def is_tile(what):
-    return what != None and what.object_type == MapGridObject.OBJECT_TILE
+    return what != None and (what.object_type == MapGridObject.OBJECT_TILE or what.object_type == MapGridObject.OBJECT_TRAMPOLINE)
 
   ## Makes an instance of MapGridObject based on provided string.
   #
@@ -93,6 +93,8 @@ class MapGridObject:
       result.object_type = MapGridObject.OBJECT_COIN
     elif object_string[0] == "P":
       result.object_type = MapGridObject.OBJECT_PLAYER
+    elif object_string[0] == "T":
+      result.object_type = MapGridObject.OBJECT_TRAMPOLINE
     elif object_string[0] == "S":
       result.object_type = MapGridObject.OBJECT_SPIKES
     elif object_string[0] == "F":
@@ -112,12 +114,12 @@ class MapGridObject:
   def __init_attributes(self):
     self.object_type = MapGridObject.OBJECT_TILE
     self.tile_id = 0
-    self.tile_variant = 0
+    self.tile_variant = 1
     self.enemy_id = 0
 
   def __str__(self):
     if self.object_type == MapGridObject.OBJECT_TILE:
-      return "T"
+      return "t"
     if self.object_type == MapGridObject.OBJECT_COIN:
       return "C"
     if self.object_type == MapGridObject.OBJECT_EGG:
@@ -133,6 +135,7 @@ class MapGridObject:
     return "?"
 
   def __init__(self):
+    self.__init_attributes()
     return
 
 #-----------------------------------------------------------------------
@@ -168,6 +171,14 @@ class Level:
 
           helper_list = content[line_number].split()
           self.tiles.append((int(helper_list[0]),helper_list[1],int(helper_list[2])))
+
+      elif content[line_number].rstrip() == "outside:":
+        line_number += 1
+        self.outside_tile = MapGridObject()
+        self.outside_tile.object_type = MapGridObject.OBJECT_TILE
+        self.outside_tile.tile_id = int(content[line_number])
+        self.outside_tile.tile_variant = 1
+
       elif content[line_number].rstrip() == "map:":
         line_number += 1
         helper_list = content[line_number].split()  # map size
@@ -185,7 +196,15 @@ class Level:
           helper_list = content[line_number].split()
 
           for pos_x in range(len(helper_list)):
-            self.map_array[pos_x][pos_y] = MapGridObject.get_instance_from_string(helper_list[pos_x])
+
+            helper_object = MapGridObject.get_instance_from_string(helper_list[pos_x])
+
+            if helper_object != None and helper_object.object_type == MapGridObject.OBJECT_PLAYER:
+              self.player = Player(self)
+              self.player.position_x = pos_x + 0.5
+              self.player.position_y = pos_y + 0.5
+            else:
+              self.map_array[pos_x][pos_y] = helper_object
 
           pos_y += 1
 
@@ -207,41 +226,74 @@ class Level:
     ## 2D list of map grid objects representing the map, each item can
     #  be None (representing nothing) or a MapGridObject
     self.map_array = None
+    ## contains a MapGridObject representing a tile with which the area
+    #  outside of the level is filled
+    self.outside_tile = None
+    ## the player object
+    self.player = None
 
   ## Gets the MapGridObject at given position in the map with map
   #  boundary check.
   #
   #  @param x x position
   #  @param y y position
-  #  @return MapGridObject at given position (can be also None) or
-  #          None if the coordinates are outside the map
+  #  @return MapGridObject at given position (can be also None), if the
+  #          position provided is outside the map area, the
+  #          MapGridObject representing the outside tile is returned
 
   def get_at(self, x, y):
     if x < 0 or x >= self.width or y < 0 or y >= self.height:
-      return None
+      return self.outside_tile
 
     return self.map_array[x][y]
-
 
   def __init__(self):
     self.__init_attributes()
 
 #-----------------------------------------------------------------------
 
-class Movable:
-  def __init__(self):
+## Represents an object that has a position and a circular shape. The
+#  object can be moved with collision detections.
+
+class Movable(object):
+  def __init_attributes(self):
+    ## x position of the center in tiles (float)
+    self.position_x = 0.0
+    ## y position of the center in tiles (float)
+    self.position_y = 0.0
+    ## object diameter in pixels
+    self.diameter = 30
+    ## reference to a level in which the object is placed (for colision
+    #  detection)
+    self.level = None
+
+  ## Moves the object by given position difference with colission
+  #  detections.
+  #
+  #  @param dx position difference in x, in tiles (float)
+  #  @param dy position difference in y, in tiles (float)
+
+  def move_by(self, dx, dy):
+    self.position_x += dx
+    self.position_y += dy
+
+  def __init__(self, level):
+    self.__init_attributes()
+    self.level = level
     return
 
 #-----------------------------------------------------------------------
 
 class Player(Movable):
-  def __init__(self):
+  def __init__(self, level):
+    super(Player,self).__init__(level)
     return
 
 #-----------------------------------------------------------------------
 
 class Enemy(Movable):
-  def __init__(self):
+  def __init__(self, level):
+    super(Enemy,self).__init__(level)
     return
 
 #-----------------------------------------------------------------------
@@ -267,11 +319,25 @@ class TileTopImageContainer:
 
 #-----------------------------------------------------------------------
 
+## Character (player, enemy, ...) image container.
+
+class CharacterImageContainer:
+  def __init__(self):
+    self.standing = []
+    self.moving_right = []
+    self.moving_left = []
+    self.jumping = []
+    self.special = []
+
+#-----------------------------------------------------------------------
+
 class Renderer:
   TILE_WIDTH = 200
   TILE_HEIGHT = 200
   TOP_LAYER_OFFSET = 20
   TOP_LAYER_LEFT_WIDTH = 23
+  DUCK_CENTER_X = 100
+  DUCK_CENTER_Y = 100
 
   def __init_attributes(self):
     ## reference to a level being rendered
@@ -284,9 +350,9 @@ class Renderer:
     self.screen_width_tiles = 1
     ## screen height in tiles (rounded up)
     self.screen_height_tiles = 1
-    ## camera top left x offset from the origin in pixels
+    ## camera top left corner x offset from the origin in pixels
     self._camera_x = 0
-    ## camera top left y offset from the origin in pixels
+    ## camera top left corner y offset from the origin in pixels
     self._camera_y = 0
     ## contains images of tiles indexed by tile id, each item is a list
     #  where each item contains an image of one tile variant starting
@@ -303,6 +369,30 @@ class Renderer:
     spikes_mask = pygame.image.load("resources/spikes_mask.bmp")
     ## Contains the spikes image
     self.spikes_image = prepare_image(pygame.image.load("resources/spikes.bmp"),transparency_mask = spikes_mask)
+    ## Contains the trampoline image
+    self.trampoline_image = prepare_image(pygame.image.load("resources/trampoline.bmp"))
+
+    ## Contains images of the player (the duck)
+    self.player_images = CharacterImageContainer()
+
+    self.player_images.standing.append(prepare_image(pygame.image.load("resources/duck_right_stand.bmp"),transparency_mask = pygame.image.load("resources/duck_right_stand_mask.bmp")))
+    self.player_images.standing.append(pygame.transform.flip(self.player_images.standing[0],True,False))
+
+    for i in range(1,7):
+      self.player_images.moving_right.append(prepare_image(pygame.image.load("resources/duck_right_walk_" + str(i) + ".bmp"),transparency_mask = pygame.image.load("resources/duck_right_walk_" + str(i) + "_mask.bmp")))
+      self.player_images.moving_left.append(pygame.transform.flip(self.player_images.moving_right[-1],True,False))
+
+    self.player_images.jumping.append(prepare_image(pygame.image.load("resources/duck_right_jump_up_1.bmp"),transparency_mask = pygame.image.load("resources/duck_right_jump_up_1_mask.bmp")))
+    self.player_images.jumping.append(prepare_image(pygame.image.load("resources/duck_right_jump_up_2.bmp"),transparency_mask = pygame.image.load("resources/duck_right_jump_up_2_mask.bmp")))
+    self.player_images.jumping.append(prepare_image(pygame.image.load("resources/duck_right_jump_down_1.bmp"),transparency_mask = pygame.image.load("resources/duck_right_jump_down_1_mask.bmp")))
+    self.player_images.jumping.append(prepare_image(pygame.image.load("resources/duck_right_jump_down_2.bmp"),transparency_mask = pygame.image.load("resources/duck_right_jump_down_2_mask.bmp")))
+    self.player_images.jumping.append(pygame.transform.flip(self.player_images.jumping[0],True,False))
+    self.player_images.jumping.append(pygame.transform.flip(self.player_images.jumping[1],True,False))
+    self.player_images.jumping.append(pygame.transform.flip(self.player_images.jumping[2],True,False))
+    self.player_images.jumping.append(pygame.transform.flip(self.player_images.jumping[3],True,False))
+
+    self.player_images.special.append(prepare_image(pygame.image.load("resources/duck_right_quack.bmp"),transparency_mask = pygame.image.load("resources/duck_right_quack_mask.bmp")))
+    self.player_images.special.append(pygame.transform.flip(self.player_images.special[0],True,False))
 
   ## Sets the level to be rendered.
   #
@@ -354,6 +444,17 @@ class Renderer:
 
     return (left,center,right)
 
+
+  ## Private method, computes the screen pixel coordinates out of given
+  #  map square coordinates (float) taking camera position into account.
+  #
+  #  @param x x map position in tiles (double)
+  #  @param y y map position in tiles (double)
+  #  @return (x,y) tuple of pixel screen coordinates
+
+  def __map_position_to_screen_position(self, x, y):
+    return (x * Renderer.TILE_WIDTH - self._camera_x,y * Renderer.TILE_HEIGHT - self._camera_y)
+
   ## Renders the level (without GUI).
   #
   #  @return image with rendered level (pygame.Surface)
@@ -370,7 +471,7 @@ class Renderer:
     # draw the tiles and map object:
     for j in range(self.visible_tile_area[1],self.visible_tile_area[3]):  # render only visible area
       for i in range(self.visible_tile_area[0],self.visible_tile_area[2]):
-        map_grid_object = self._level.map_array[i][j]
+        map_grid_object = self._level.get_at(i,j)
 
         if map_grid_object == None:
           continue
@@ -381,6 +482,9 @@ class Renderer:
           if map_grid_object.object_type == MapGridObject.OBJECT_TILE:
             result.blit(self.tile_images[map_grid_object.tile_id][map_grid_object.tile_variant],(x,y))
 
+            #print(map_grid_object.tile_variant)
+            #result.blit(self.tile_images[map_grid_object.tile_id][map_grid_object.tile_variant],(x,y))
+
             top_layer = self.__get_top_layer(i,j)
 
             if top_layer[0]:   # left
@@ -389,28 +493,32 @@ class Renderer:
             if top_layer[1]:   # center
               result.blit(self.tile_images[map_grid_object.tile_id][0].center,(x,y - Renderer.TOP_LAYER_OFFSET))
 
-            if top_layer[1]:   # right
+            if top_layer[2]:   # right
               result.blit(self.tile_images[map_grid_object.tile_id][0].right,(x + Renderer.TILE_WIDTH,y - Renderer.TOP_LAYER_OFFSET))
 
           elif map_grid_object.object_type == MapGridObject.OBJECT_SPIKES:
             result.blit(self.spikes_image,(x,y))
+          elif map_grid_object.object_type == MapGridObject.OBJECT_TRAMPOLINE:
+            result.blit(self.trampoline_image,(x,y))
 
+    player_position = self.__map_position_to_screen_position(self._level.player.position_x,self._level.player.position_y)
+    result.blit(self.player_images.standing[0],(player_position[0] - Renderer.DUCK_CENTER_X,player_position[1] - Renderer.DUCK_CENTER_Y))
 
     return result
 
-  ## Sets the camera top left corner position.
+  ## Sets the camera center position.
   #
   #  @param camera_x x coordinate in pixels
   #  @param camera_y y coordinate in pixels
 
   def set_camera_position(self, camera_x, camera_y):
-    self._camera_x = camera_x
-    self._camera_y = camera_y
+    self._camera_x = camera_x - self.screen_width / 2
+    self._camera_y = camera_y - self.screen_width / 2
 
-    helper_x = int(camera_x / Renderer.TILE_WIDTH)
-    helper_y = int(camera_y / Renderer.TILE_HEIGHT)
+    helper_x = int(self._camera_x / Renderer.TILE_WIDTH)
+    helper_y = int(self._camera_y / Renderer.TILE_HEIGHT)
 
-    self.visible_tile_area = (max(helper_x,0),max(helper_y,0),min(helper_x + self.screen_width_tiles,self._level.width),min(helper_y + self.screen_height_tiles,self._level.height))
+    self.visible_tile_area = (helper_x,helper_y,helper_x + self.screen_width_tiles,helper_y + self.screen_height_tiles)
 
     print(self.visible_tile_area)
 
@@ -444,20 +552,21 @@ while 1:
 
     if event.type == pygame.KEYDOWN:
       if event.key == pygame.K_RIGHT:
-        cam_x += 40
+        l.player.move_by(0.5,0)
         print("r")
       elif event.key == pygame.K_LEFT:
         print("l")
-        cam_x -= 40
+        l.player.move_by(-0.5,0)
       elif event.key == pygame.K_UP:
         print("u")
-        cam_y -= 40
+        l.player.move_by(0,-0.5)
       elif event.key == pygame.K_DOWN:
         print("d")
-        cam_y += 40
+        l.player.move_by(0,0.5)
 
-      print(str(cam_x) + " " + str(cam_y))
-      renderer.set_camera_position(cam_x,cam_y)
+      renderer.set_camera_position(int(l.player.position_x * Renderer.TILE_WIDTH),int(l.player.position_y * Renderer.TILE_HEIGHT))
+
+      #renderer.set_camera_position(cam_x,cam_y)
 
   screen.blit(renderer.render_level(),(0,0))
   pygame.display.flip()
