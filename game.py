@@ -11,6 +11,13 @@ import pygame
 import sys
 import math
 
+# time of the last frame in milliseconds
+frame_time = 0.0
+
+# after how many frames the player state will be updated (this is
+# only a graphics thing)
+UPDATE_STATE_AFTER_FRAMES = 7
+
 #-----------------------------------------------------------------------
 
 ## Prepares image after loading for its use.
@@ -362,9 +369,22 @@ class Movable(object):
 #-----------------------------------------------------------------------
 
 class Player(Movable):
+  PLAYER_STATE_STANDING = 0
+  PLAYER_STATE_WALKING = 1
+  PLAYER_STATE_JUMPING_UP = 2
+  PLAYER_STATE_JUMPING_DOWN = 3
+
+  def __init_attributes(self):
+    ## basic player state
+    self.state = Player.PLAYER_STATE_STANDING
+    ## whether the player is facing right or left
+    self.facing_right = True
+    ## whether the player is flapping its wings
+    self.flapping_wings = False
+
   def __init__(self, level):
     super(Player,self).__init__(level)
-    return
+    self.__init_attributes()
 
 #-----------------------------------------------------------------------
 
@@ -536,6 +556,8 @@ class Renderer:
     result = pygame.Surface((self.screen_width,self.screen_height))
     result.fill(self._level.background_color)
 
+    animation_frame = int(pygame.time.get_ticks() / 50)
+
     # draw the background image:
 
     for i in range(self.background_repeat_times):
@@ -572,7 +594,34 @@ class Renderer:
             result.blit(self.trampoline_image,(x,y))
 
     player_position = self.__map_position_to_screen_position(self._level.player.position_x,self._level.player.position_y)
-    result.blit(self.player_images.standing[0],(player_position[0] - Renderer.DUCK_CENTER_X,player_position[1] - Renderer.DUCK_CENTER_Y))
+
+    player_image = self.player_images.standing[0]
+
+    if self._level.player.state == Player.PLAYER_STATE_STANDING:
+      if self._level.player.facing_right:
+        player_image = self.player_images.standing[0]
+      else:
+        player_image = self.player_images.standing[1]
+    elif self._level.player.state == Player.PLAYER_STATE_WALKING:
+      if self._level.player.facing_right:
+        player_image = self.player_images.moving_right[animation_frame % len(self.player_images.moving_right)]
+      else:
+        player_image = self.player_images.moving_left[animation_frame % len(self.player_images.moving_right)]
+    elif self._level.player.state == Player.PLAYER_STATE_JUMPING_UP:
+      if self._level.player.facing_right:
+        player_image = self.player_images.jumping[0]
+      else:
+        player_image = self.player_images.jumping[4]
+    elif self._level.player.state == Player.PLAYER_STATE_JUMPING_DOWN:
+      if self._level.player.facing_right:
+        player_image = self.player_images.jumping[2]
+      else:
+        player_image = self.player_images.jumping[6]
+
+
+
+
+    result.blit(player_image,(player_position[0] - Renderer.DUCK_CENTER_X,player_position[1] - Renderer.DUCK_CENTER_Y))
 
     return result
 
@@ -600,8 +649,58 @@ class Renderer:
 
 #-----------------------------------------------------------------------
 
+## A decorator that
+#
+
+class ForceComputer:
+
+
+  def __init_attributes(self):
+    ## reference to decorated object (Movable)
+    self.decorated_object = None
+
+    ## velocity in tiles per second
+    self.velocity_vector = [0,0]
+
+    ## acceleration in tiles per second squared
+    self.acceleration_vector = [0,0]
+
+
+
+  ## Applies the forces to the decorated object and computes new forces.
+  #
+
+  def execute_step(self):
+    if frame_time == 0:    # we don't want to be diving by zero
+      return
+
+    seconds = frame_time / 1000.0
+
+    object_position = (self.decorated_object.position_x,self.decorated_object.position_y)
+    self.decorated_object.move_by(self.velocity_vector[0] * seconds,self.velocity_vector[1] * seconds)
+    object_position2 = (self.decorated_object.position_x,self.decorated_object.position_y)
+
+    self.velocity_vector = [(object_position2[0] - object_position[0]) / seconds,(object_position2[1] - object_position[1]) / seconds]
+
+    self.velocity_vector[0] += self.acceleration_vector[0] * seconds
+    self.velocity_vector[1] += self.acceleration_vector[1] * seconds
+
+  def __init__(self, decorated_object):
+    self.__init_attributes()
+    self.decorated_object = decorated_object
+
+#-----------------------------------------------------------------------
+
+pygame.init()
+
 l = Level()
 l.load_from_file("resources/level1.lvl")
+
+fc = ForceComputer(l.player)
+
+fc.acceleration_vector[0] = 0
+fc.acceleration_vector[1] = 4.7    # gravity
+
 
 screen_width = 1024
 screen_height = 768
@@ -619,42 +718,85 @@ key_down = False
 key_left = False
 key_right = False
 
+state_update_counter = 0
+
 while 1:
+  time_start = pygame.time.get_ticks()
   for event in pygame.event.get():
     if event.type == pygame.QUIT: sys.exit()
 
     if event.type == pygame.KEYDOWN:
       if event.key == pygame.K_RIGHT:
+        fc.velocity_vector[0] = 2.0
+
         key_right = True
       elif event.key == pygame.K_LEFT:
+        fc.velocity_vector[0] = -2.0
+
         key_left = True
       elif event.key == pygame.K_UP:
+
+        fc.velocity_vector[1] = -3.7
+
         key_up = True
       elif event.key == pygame.K_DOWN:
         key_down = True
     elif event.type == pygame.KEYUP:
       if event.key == pygame.K_RIGHT:
+
+        fc.velocity_vector[0] = 0
+
         key_right = False
       elif event.key == pygame.K_LEFT:
+        fc.velocity_vector[0] = 0
+
         key_left = False
       elif event.key == pygame.K_UP:
         key_up = False
       elif event.key == pygame.K_DOWN:
         key_down = False
 
-  if key_right:
-    l.player.move_by(0.01,0)
+  if state_update_counter == 0:
+    if fc.velocity_vector[1] > 0.1:
+      l.player.state = Player.PLAYER_STATE_JUMPING_DOWN
+    elif fc.velocity_vector[1] < -0.1:
+      l.player.state = Player.PLAYER_STATE_JUMPING_UP
+    else:
+      if fc.velocity_vector[0] > 0.1 or fc.velocity_vector[0] < -0.1:
+        l.player.state = Player.PLAYER_STATE_WALKING
+      else:
+        l.player.state = Player.PLAYER_STATE_STANDING
 
-  if key_left:
-    l.player.move_by(-0.01,0)
+    if fc.velocity_vector[0] > 0.1:
+      l.player.facing_right = True
+    elif fc.velocity_vector[0] < -0.1:
+      l.player.facing_right = False
 
-  if key_up:
-    l.player.move_by(0,-0.01)
 
-  if key_down:
-    l.player.move_by(0,0.01)
+#  elif fc.velocity_vector[1] < -0.01:
+#    l.player.state = Player.PLAYER_STATE_JUMPING_UP
+
+  #if key_right:
+    #l.player.move_by(0.01,0)
+
+  #if key_left:
+    #l.player.move_by(-0.01,0)
+
+  #if key_up:
+    #l.player.move_by(0,-0.01)
+
+  #if key_down:
+    #l.player.move_by(0,0.01)
+
+  fc.execute_step()
 
   renderer.set_camera_position(int(l.player.position_x * Renderer.TILE_WIDTH),int(l.player.position_y * Renderer.TILE_HEIGHT))
 
   screen.blit(renderer.render_level(),(0,0))
   pygame.display.flip()
+
+  frame_time = pygame.time.get_ticks() - time_start
+
+  state_update_counter = (state_update_counter + 1) % UPDATE_STATE_AFTER_FRAMES
+
+
