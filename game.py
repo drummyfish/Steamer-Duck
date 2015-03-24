@@ -276,6 +276,22 @@ class Movable(object):
     #  detection)
     self.level = None
 
+  ## Checks if the object is in the air (i.e. there is no tile right
+  #  below it)
+  #
+  #  @return True if the object is in the air, False otherwise
+
+  def is_in_air(self):
+    distance_to_ground = 99999
+
+    lower_border = self.position_y + self.height / 2.0
+    tile_y = int(lower_border) + 1
+
+    if MapGridObject.is_tile(self.level.get_at(int(self.position_x),tile_y)):
+      distance_to_ground = tile_y - lower_border
+
+    return distance_to_ground > 0.1
+
   ## Moves the object by given position difference with colission
   #  detections.
   #
@@ -455,21 +471,30 @@ class Renderer:
     #  where each item contains an image of one tile variant starting
     #  from 1, index 0 contains a TileTopImageContainer
     self.tile_images = {}
-    ## Contains the level background image
+    ## contains the level background image
     self.background_image = None
-    ## How many times the background should be repeated in x direction
+    teleport_mask = pygame.image.load("resources/teleport_mask.bmp")
+    ## contains teleport image
+    self.teleport_inactive_image = prepare_image(pygame.image.load("resources/teleport_1.bmp"),transparency_mask = teleport_mask)
+    self.teleport_active_image = prepare_image(pygame.image.load("resources/teleport_2.bmp"),transparency_mask = teleport_mask)
+
+    egg_mask = pygame.image.load("resources/egg_mask.bmp")
+    ## contains egg image
+    self.egg_image = prepare_image(pygame.image.load("resources/egg.bmp"),transparency_mask = egg_mask)
+
+    ## how many times the background should be repeated in x direction
     self.background_repeat_times = 1
     ## Says which part of the map array is visible in format
     #  (x1,y1,x2,y2)
     self.visible_tile_area = (0,0,0,0)
 
     spikes_mask = pygame.image.load("resources/spikes_mask.bmp")
-    ## Contains the spikes image
+    ## contains the spikes image
     self.spikes_image = prepare_image(pygame.image.load("resources/spikes.bmp"),transparency_mask = spikes_mask)
-    ## Contains the trampoline image
+    ## contains the trampoline image
     self.trampoline_image = prepare_image(pygame.image.load("resources/trampoline.bmp"))
 
-    ## Contains images of the player (the duck)
+    ## contains images of the player (the duck)
     self.player_images = CharacterImageContainer()
 
     self.player_images.standing.append(prepare_image(pygame.image.load("resources/duck_right_stand.bmp"),transparency_mask = pygame.image.load("resources/duck_right_stand_mask.bmp")))
@@ -590,12 +615,23 @@ class Renderer:
 
           elif map_grid_object.object_type == MapGridObject.OBJECT_SPIKES:
             result.blit(self.spikes_image,(x,y))
+          elif map_grid_object.object_type == MapGridObject.OBJECT_EGG:
+            result.blit(self.egg_image,(x,y))
           elif map_grid_object.object_type == MapGridObject.OBJECT_TRAMPOLINE:
             result.blit(self.trampoline_image,(x,y))
+          elif map_grid_object.object_type == MapGridObject.OBJECT_FINISH:
+            result.blit(self.teleport_active_image,(x,y))
+
+    # draw the player:
 
     player_position = self.__map_position_to_screen_position(self._level.player.position_x,self._level.player.position_y)
 
     player_image = self.player_images.standing[0]
+
+    if self._level.player.flapping_wings:
+      flapping_animation_frame = int(pygame.time.get_ticks() / 100.0) % 2
+    else:
+      flapping_animation_frame = 0
 
     if self._level.player.state == Player.PLAYER_STATE_STANDING:
       if self._level.player.facing_right:
@@ -609,14 +645,14 @@ class Renderer:
         player_image = self.player_images.moving_left[animation_frame % len(self.player_images.moving_right)]
     elif self._level.player.state == Player.PLAYER_STATE_JUMPING_UP:
       if self._level.player.facing_right:
-        player_image = self.player_images.jumping[0]
+        player_image = self.player_images.jumping[flapping_animation_frame]
       else:
-        player_image = self.player_images.jumping[4]
+        player_image = self.player_images.jumping[4 + flapping_animation_frame]
     elif self._level.player.state == Player.PLAYER_STATE_JUMPING_DOWN:
       if self._level.player.facing_right:
-        player_image = self.player_images.jumping[2]
+        player_image = self.player_images.jumping[3 - flapping_animation_frame]
       else:
-        player_image = self.player_images.jumping[6]
+        player_image = self.player_images.jumping[7 - flapping_animation_frame]
 
 
 
@@ -665,7 +701,13 @@ class ForceComputer:
     ## acceleration in tiles per second squared
     self.acceleration_vector = [0,0]
 
+    ## maximum speed that will be assigned int horizontal direction
+    self.maximum_horizontal_speed = 3
 
+
+    ## says how much of the horizontal speed will be converted to
+    #  acceleration in opposite direction
+    self.ground_friction = 5
 
   ## Applies the forces to the decorated object and computes new forces.
   #
@@ -682,7 +724,12 @@ class ForceComputer:
 
     self.velocity_vector = [(object_position2[0] - object_position[0]) / seconds,(object_position2[1] - object_position[1]) / seconds]
 
-    self.velocity_vector[0] += self.acceleration_vector[0] * seconds
+   # self.velocity_vector[0] *= self.ground_friction * seconds
+
+  #  new_speed_x = self.velocity_vector[0] + self.acceleration_vector[0] * seconds
+  #  self.velocity_vector[0] = min(new_speed_x,self.maximum_horizontal_speed) if new_speed_x > 0 else max(new_speed_x,-1 * self.maximum_horizontal_speed)
+
+    self.velocity_vector[0] += (self.acceleration_vector[0] - self.velocity_vector[0] * self.ground_friction) * seconds
     self.velocity_vector[1] += self.acceleration_vector[1] * seconds
 
   def __init__(self, decorated_object):
@@ -690,6 +737,9 @@ class ForceComputer:
     self.decorated_object = decorated_object
 
 #-----------------------------------------------------------------------
+
+GRAVITY = 4.7         # gravity
+GRAVITY_FLYING = 2    # gravity when flapping wings
 
 pygame.init()
 
@@ -699,8 +749,7 @@ l.load_from_file("resources/level1.lvl")
 fc = ForceComputer(l.player)
 
 fc.acceleration_vector[0] = 0
-fc.acceleration_vector[1] = 4.7    # gravity
-
+fc.acceleration_vector[1] = GRAVITY    # gravity
 
 screen_width = 1024
 screen_height = 768
@@ -727,34 +776,42 @@ while 1:
 
     if event.type == pygame.KEYDOWN:
       if event.key == pygame.K_RIGHT:
-        fc.velocity_vector[0] = 2.0
-
         key_right = True
       elif event.key == pygame.K_LEFT:
-        fc.velocity_vector[0] = -2.0
-
         key_left = True
       elif event.key == pygame.K_UP:
-
-        fc.velocity_vector[1] = -3.7
-
         key_up = True
       elif event.key == pygame.K_DOWN:
         key_down = True
+      elif event.key == pygame.K_SPACE:
+        l.player.flapping_wings = True
     elif event.type == pygame.KEYUP:
       if event.key == pygame.K_RIGHT:
-
-        fc.velocity_vector[0] = 0
-
         key_right = False
       elif event.key == pygame.K_LEFT:
-        fc.velocity_vector[0] = 0
-
         key_left = False
       elif event.key == pygame.K_UP:
         key_up = False
       elif event.key == pygame.K_DOWN:
         key_down = False
+      elif event.key == pygame.K_SPACE:
+        l.player.flapping_wings = False
+
+  if key_up:
+    if not l.player.state in [Player.PLAYER_STATE_JUMPING_UP, Player.PLAYER_STATE_JUMPING_DOWN] and not l.player.is_in_air():
+      fc.velocity_vector[1] = -3.7
+
+  if key_right and not key_left:
+    fc.acceleration_vector[0] = 20.0
+  elif key_left and not key_right:
+    fc.acceleration_vector[0] = -20.0
+  else:
+    fc.acceleration_vector[0] = 0
+
+  if l.player.flapping_wings:
+    fc.acceleration_vector[1] = GRAVITY_FLYING
+  else:
+    fc.acceleration_vector[1] = GRAVITY
 
   if state_update_counter == 0:
     if fc.velocity_vector[1] > 0.1:
@@ -767,9 +824,9 @@ while 1:
       else:
         l.player.state = Player.PLAYER_STATE_STANDING
 
-    if fc.velocity_vector[0] > 0.1:
+    if fc.acceleration_vector[0] > 0.1:
       l.player.facing_right = True
-    elif fc.velocity_vector[0] < -0.1:
+    elif fc.acceleration_vector[0] < -0.1:
       l.player.facing_right = False
 
 
