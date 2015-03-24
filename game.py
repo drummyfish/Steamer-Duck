@@ -152,6 +152,7 @@ class Level:
 
   ## Loads the level from given file.
   #
+  #  @param filename file to be loaded
 
   def load_from_file(self,filename):
     with open(filename) as input_file:
@@ -226,6 +227,23 @@ class Level:
 
       line_number += 1
 
+  ## Checks the game state and updates it acoordingly, for example if
+  #  a player is standing on an egg, they will take it.
+
+  def update(self):
+    player_tile_x = int(self.player.position_x)
+    player_tile_y = int(self.player.position_y)
+
+    self.time = pygame.time.get_ticks() - self._time_start
+
+    object_at_player_tile = self.map_array[player_tile_x][player_tile_y]
+
+    if object_at_player_tile != None:
+      if object_at_player_tile.object_type == MapGridObject.OBJECT_COIN:
+        self.map_array[player_tile_x][player_tile_y] = None
+      elif object_at_player_tile.object_type == MapGridObject.OBJECT_EGG:
+        self.map_array[player_tile_x][player_tile_y] = None
+
   def __init_attributes(self):
     ## the level name
     self.name = ""
@@ -251,6 +269,10 @@ class Level:
     self.enemies = []
     ## gravity force
     self.gravity = 4.7
+    ## time from the level start in miliseconds
+    self.time = 0
+    ## time at which the level was created
+    self._time_start = pygame.time.get_ticks()
 
   ## Gets the MapGridObject at given position in the map with map
   #  boundary check.
@@ -499,6 +521,10 @@ class Renderer:
   TOP_LAYER_LEFT_WIDTH = 23
 
   def __init_attributes(self):
+    ## normal sized font
+    self.font_normal = pygame.font.Font("resources/Folktale.ttf",28)
+    ## the text color
+    self.font_color = (100,50,0)
     ## reference to a level being rendered
     self._level = None
     ## screen width in pixel
@@ -539,6 +565,15 @@ class Renderer:
     teleport_mask = pygame.image.load("resources/teleport_mask.bmp")
     self.teleport_inactive_image = prepare_image(pygame.image.load("resources/teleport_1.bmp"),transparency_mask = teleport_mask)
     self.teleport_active_image = prepare_image(pygame.image.load("resources/teleport_2.bmp"),transparency_mask = teleport_mask)
+    ## contains coin animation images
+    self.coin_images = []
+
+    score_bar_mask = pygame.image.load("resources/score_bar_mask.bmp")
+    self.score_bar_image = prepare_image(pygame.image.load("resources/score_bar.bmp"),transparency_mask = score_bar_mask)
+
+    for i in range(1,7):
+      coin_mask = pygame.image.load("resources/coin_" + str(i) + "_mask.bmp")
+      self.coin_images.append(prepare_image(pygame.image.load("resources/coin_" + str(i) + ".bmp"),transparency_mask = coin_mask))
 
     egg_mask = pygame.image.load("resources/egg_mask.bmp")
     ## contains egg image
@@ -624,7 +659,6 @@ class Renderer:
 
     return (left,center,right)
 
-
   ## Private method, computes the screen pixel coordinates out of given
   #  map square coordinates (float) taking camera position into account.
   #
@@ -643,7 +677,7 @@ class Renderer:
     result = pygame.Surface((self.screen_width,self.screen_height))
     result.fill(self._level.background_color)
 
-    animation_frame = int(pygame.time.get_ticks() / 50)
+    animation_frame = int(pygame.time.get_ticks() / 64)
 
     # draw the background image:
 
@@ -678,7 +712,9 @@ class Renderer:
           elif map_grid_object.object_type == MapGridObject.OBJECT_SPIKES:
             result.blit(self.spikes_image,(x,y))
           elif map_grid_object.object_type == MapGridObject.OBJECT_EGG:
-            result.blit(self.egg_image,(x,y))
+            result.blit(self.egg_image,(x + 50,y + 50))
+          elif map_grid_object.object_type == MapGridObject.OBJECT_COIN:
+            result.blit(self.coin_images[animation_frame % len(self.coin_images)],(x + 20,y))
           elif map_grid_object.object_type == MapGridObject.OBJECT_TRAMPOLINE:
             result.blit(self.trampoline_image,(x,y))
           elif map_grid_object.object_type == MapGridObject.OBJECT_FINISH:
@@ -691,7 +727,7 @@ class Renderer:
     player_image = self.player_images.standing[0]
 
     if self._level.player.flapping_wings:
-      flapping_animation_frame = int(pygame.time.get_ticks() / 100.0) % 2
+      flapping_animation_frame = animation_frame % 2
     else:
       flapping_animation_frame = 0
 
@@ -731,9 +767,18 @@ class Renderer:
         else:
           enemy_image = self.enemy_ground_images[0]
       else:
-        enemy_image = self.enemy_flying_images[int(pygame.time.get_ticks() / 100) % 3]
+        enemy_image = self.enemy_flying_images[animation_frame % 3]
 
       result.blit(enemy_image,(enemy_position[0] - enemy_image.get_width() / 2,enemy_position[1] - enemy_image.get_height() / 2))
+
+    # draw the GUI:
+
+    result.blit(self.score_bar_image,(22,20))
+    text_image = self.font_normal.render("time: " + str(int(self._level.time / 1000.0)),1,self.font_color)
+    result.blit(text_image,(50,50))
+    text_image = self.font_normal.render("score: ",1,self.font_color)
+    result.blit(text_image,(50,80))
+
     return result
 
   ## Sets the camera center position.
@@ -817,8 +862,6 @@ pygame.init()
 
 l = Level()
 l.load_from_file("resources/level1.lvl")
-
-print(l.enemies)
 
 fc = ForceComputer(l.player)
 
@@ -924,6 +967,8 @@ while 1:
     #l.player.move_by(0,0.01)
 
   fc.execute_step()
+
+  l.update()
 
   renderer.set_camera_position(int(l.player.position_x * Renderer.TILE_WIDTH),int(l.player.position_y * Renderer.TILE_HEIGHT))
 
