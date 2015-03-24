@@ -10,6 +10,7 @@
 import pygame
 import sys
 import math
+import random
 
 # time of the last frame in milliseconds
 frame_time = 0.0
@@ -210,6 +211,14 @@ class Level:
               self.player = Player(self)
               self.player.position_x = pos_x + 0.5
               self.player.position_y = pos_y + 0.5
+            elif helper_object != None and helper_object.object_type == MapGridObject.OBJECT_ENEMY_FLYING:
+              self.enemies.append(Enemy(self,Enemy.ENEMY_FLYING))
+              self.enemies[-1].position_x = pos_x + 0.5
+              self.enemies[-1].position_y = pos_y + 0.5
+            elif helper_object != None and helper_object.object_type == MapGridObject.OBJECT_ENEMY_GROUND:
+              self.enemies.append(Enemy(self,Enemy.ENEMY_GROUND))
+              self.enemies[-1].position_x = pos_x + 0.5
+              self.enemies[-1].position_y = pos_y + 0.5
             else:
               self.map_array[pos_x][pos_y] = helper_object
 
@@ -238,6 +247,10 @@ class Level:
     self.outside_tile = None
     ## the player object
     self.player = None
+    ## contains enemies
+    self.enemies = []
+    ## gravity force
+    self.gravity = 4.7
 
   ## Gets the MapGridObject at given position in the map with map
   #  boundary check.
@@ -405,8 +418,43 @@ class Player(Movable):
 #-----------------------------------------------------------------------
 
 class Enemy(Movable):
-  def __init__(self, level):
+  ENEMY_FLYING = 0
+  ENEMY_GROUND = 1
+
+  ## Makes the enemy move accoording to its AI. The step length is
+  #  computed out of a global
+  #  variable frame_time.
+
+  def ai_move(self):
+    self.force_computer.execute_step()
+
+    if pygame.time.get_ticks() >= self.next_direction_change:
+      self.next_direction_change = pygame.time.get_ticks() + 1000
+      self.__recompute_direction()
+
+  ## Private method, recomputes the direction of movement to a new
+  #  direction and remembers it as a velocity vector in force computer.
+
+  def __recompute_direction(self):
+    self.force_computer.velocity_vector[0] = 1.0 - random.random() * 2.0
+    self.force_computer.velocity_vector[1] = 1.0 - random.random() * 2.0
+
+  def __init__(self, level, enemy_type = ENEMY_GROUND):
     super(Enemy,self).__init__(level)
+    self.enemy_type = enemy_type
+
+    self.force_computer = ForceComputer(self)
+
+    if self.enemy_type == Enemy.ENEMY_GROUND:  # apply gravity to the ground robot
+      self.force_computer.acceleration_vector[0] = 0
+      self.force_computer.acceleration_vector[1] = level.gravity
+
+    self.force_computer.ground_friction = 0
+
+    ## time of next direction change
+    self.next_direction_change = 0
+
+    self.enemy_type = enemy_type
     return
 
 #-----------------------------------------------------------------------
@@ -449,8 +497,6 @@ class Renderer:
   TILE_HEIGHT = 200
   TOP_LAYER_OFFSET = 10
   TOP_LAYER_LEFT_WIDTH = 23
-  DUCK_CENTER_X = 100
-  DUCK_CENTER_Y = 110
 
   def __init_attributes(self):
     ## reference to a level being rendered
@@ -473,8 +519,24 @@ class Renderer:
     self.tile_images = {}
     ## contains the level background image
     self.background_image = None
-    teleport_mask = pygame.image.load("resources/teleport_mask.bmp")
+    ## contains flying enemy images
+    self.enemy_flying_images = []
+    enemy_flying_mask = pygame.image.load("resources/robot_flying_1_mask.bmp")
+    self.enemy_flying_images.append(prepare_image(pygame.image.load("resources/robot_flying_1.bmp"),transparency_mask = enemy_flying_mask))
+    enemy_flying_mask = pygame.image.load("resources/robot_flying_2_mask.bmp")
+    self.enemy_flying_images.append(prepare_image(pygame.image.load("resources/robot_flying_2.bmp"),transparency_mask = enemy_flying_mask))
+    enemy_flying_mask = pygame.image.load("resources/robot_flying_3_mask.bmp")
+    self.enemy_flying_images.append(prepare_image(pygame.image.load("resources/robot_flying_3.bmp"),transparency_mask = enemy_flying_mask))
+    ## contains ground enemy images
+    self.enemy_ground_images = []
+    enemy_ground_mask = pygame.image.load("resources/robot_ground_stand_mask.bmp")
+    self.enemy_ground_images.append(prepare_image(pygame.image.load("resources/robot_ground_stand.bmp"),transparency_mask = enemy_ground_mask))
+    enemy_ground_mask = pygame.image.load("resources/robot_ground_right_mask.bmp")
+    self.enemy_ground_images.append(prepare_image(pygame.image.load("resources/robot_ground_right.bmp"),transparency_mask = enemy_ground_mask))
+    enemy_ground_mask = pygame.image.load("resources/robot_ground_left_mask.bmp")
+    self.enemy_ground_images.append(prepare_image(pygame.image.load("resources/robot_ground_left.bmp"),transparency_mask = enemy_ground_mask))
     ## contains teleport image
+    teleport_mask = pygame.image.load("resources/teleport_mask.bmp")
     self.teleport_inactive_image = prepare_image(pygame.image.load("resources/teleport_1.bmp"),transparency_mask = teleport_mask)
     self.teleport_active_image = prepare_image(pygame.image.load("resources/teleport_2.bmp"),transparency_mask = teleport_mask)
 
@@ -654,11 +716,24 @@ class Renderer:
       else:
         player_image = self.player_images.jumping[7 - flapping_animation_frame]
 
+    result.blit(player_image,(player_position[0] - player_image.get_width() / 2,player_position[1] - player_image.get_height() / 2))
 
+    # draw the enemies:
 
+    for enemy in self._level.enemies:
+      enemy_position = self.__map_position_to_screen_position(enemy.position_x,enemy.position_y)
 
-    result.blit(player_image,(player_position[0] - Renderer.DUCK_CENTER_X,player_position[1] - Renderer.DUCK_CENTER_Y))
+      if enemy.enemy_type == Enemy.ENEMY_GROUND:
+        if enemy.force_computer.velocity_vector[0] > 0.5:
+          enemy_image = self.enemy_ground_images[1]
+        elif enemy.force_computer.velocity_vector[0] < -0.5:
+          enemy_image = self.enemy_ground_images[2]
+        else:
+          enemy_image = self.enemy_ground_images[0]
+      else:
+        enemy_image = self.enemy_flying_images[int(pygame.time.get_ticks() / 100) % 3]
 
+      result.blit(enemy_image,(enemy_position[0] - enemy_image.get_width() / 2,enemy_position[1] - enemy_image.get_height() / 2))
     return result
 
   ## Sets the camera center position.
@@ -689,8 +764,6 @@ class Renderer:
 #
 
 class ForceComputer:
-
-
   def __init_attributes(self):
     ## reference to decorated object (Movable)
     self.decorated_object = None
@@ -738,18 +811,19 @@ class ForceComputer:
 
 #-----------------------------------------------------------------------
 
-GRAVITY = 4.7         # gravity
-GRAVITY_FLYING = 2    # gravity when flapping wings
+FLYING_FORCE = 2    # what number is substracted from gravity when flapping the ducks wings
 
 pygame.init()
 
 l = Level()
 l.load_from_file("resources/level1.lvl")
 
+print(l.enemies)
+
 fc = ForceComputer(l.player)
 
 fc.acceleration_vector[0] = 0
-fc.acceleration_vector[1] = GRAVITY    # gravity
+fc.acceleration_vector[1] = l.gravity    # gravity
 
 screen_width = 1024
 screen_height = 768
@@ -777,10 +851,10 @@ while 1:
     if event.type == pygame.KEYDOWN:
       if event.key == pygame.K_RIGHT:
         key_right = True
-      elif event.key == pygame.K_LEFT:
-        key_left = True
       elif event.key == pygame.K_UP:
         key_up = True
+      elif event.key == pygame.K_LEFT:
+        key_left = True
       elif event.key == pygame.K_DOWN:
         key_down = True
       elif event.key == pygame.K_SPACE:
@@ -809,9 +883,9 @@ while 1:
     fc.acceleration_vector[0] = 0
 
   if l.player.flapping_wings:
-    fc.acceleration_vector[1] = GRAVITY_FLYING
+    fc.acceleration_vector[1] = l.gravity - FLYING_FORCE
   else:
-    fc.acceleration_vector[1] = GRAVITY
+    fc.acceleration_vector[1] = l.gravity
 
   if state_update_counter == 0:
     if fc.velocity_vector[1] > 0.1:
@@ -829,6 +903,10 @@ while 1:
     elif fc.acceleration_vector[0] < -0.1:
       l.player.facing_right = False
 
+  enemy_step_length = frame_time * 0.001
+
+  for enemy in l.enemies:
+    enemy.ai_move()
 
 #  elif fc.velocity_vector[1] < -0.01:
 #    l.player.state = Player.PLAYER_STATE_JUMPING_UP
