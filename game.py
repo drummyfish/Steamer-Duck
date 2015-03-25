@@ -22,6 +22,14 @@ UPDATE_STATE_AFTER_FRAMES = 7
 
 #-----------------------------------------------------------------------
 
+def text_to_fixed_width(text, width):
+  if len(text) > width:
+    return text[:width]
+
+  return text + " " * (width - len(text))
+
+#-----------------------------------------------------------------------
+
 ## Prepares image after loading for its use.
 #
 #  @param image image to be prepared (pygame.Surface)
@@ -186,14 +194,30 @@ class Level:
           helper_list = content[line_number].split()
           self.tiles.append((int(helper_list[0]),helper_list[1],int(helper_list[2])))
 
-      elif content[line_number].rstrip() == "outside:":
+      elif content[line_number] == "outside:":
         line_number += 1
         self.outside_tile = MapGridObject()
         self.outside_tile.object_type = MapGridObject.OBJECT_TILE
         self.outside_tile.tile_id = int(content[line_number])
         self.outside_tile.tile_variant = 1
 
-      elif content[line_number].rstrip() == "map:":
+      elif content[line_number] == "scores:":
+        line_number += 1
+
+        while True:
+          split_line = content[line_number].split()
+
+          if len(split_line) != 3:
+            break
+
+          self.scores.append((split_line[0],int(split_line[1]),int(split_line[2])))
+          line_number += 1
+
+        line_number -= 1
+
+        self._sort_scores()
+
+      elif content[line_number] == "map:":
         line_number += 1
         helper_list = content[line_number].split()  # map size
         self.width = int(helper_list[0])
@@ -237,6 +261,9 @@ class Level:
 
       line_number += 1
 
+  def _sort_scores(self):
+    self.scores.sort(key = lambda item: item[1])
+
   ## Checks the game state and updates it acoordingly, for example if
   #  a player is standing on an egg, they will take it.
 
@@ -246,7 +273,8 @@ class Level:
 
     self.time = pygame.time.get_ticks() - self._time_start
 
-    object_at_player_tile = self.map_array[player_tile_x][player_tile_y]
+    object_at_player_tile = self.get_at(player_tile_x,player_tile_y)
+    object_under_player_tile = self.get_at(player_tile_x,player_tile_y + 1)
 
     if object_at_player_tile != None:
       if object_at_player_tile.object_type == MapGridObject.OBJECT_COIN:
@@ -257,16 +285,39 @@ class Level:
       elif object_at_player_tile.object_type == MapGridObject.OBJECT_FINISH:
         if self.eggs_left <= 0:
           self.state = Level.STATE_WON
+      elif object_at_player_tile.object_type == MapGridObject.OBJECT_SPIKES:
+        self.set_lost()
+        return
+
+    if object_under_player_tile != None and object_under_player_tile.object_type == MapGridObject.OBJECT_TRAMPOLINE and not self.player.is_in_air():
+      self.player.force_computer.velocity_vector[1] = -10
+      self.sound_player.play_trampoline()
 
     # check colissions of player with enemies:
 
     for enemy in self.enemies:
       if self.player.collides(enemy):
-        self.state = Level.STATE_LOST
+        self.set_lost()
+
+  ## Sets the game state to lost and takes appropriate actions.
+
+  def set_lost(self):
+    if self.state == Level.STATE_LOST:
+      return
+
+    self.state = Level.STATE_LOST
+    self.player.solid = False
+    self.player.force_computer.velocity_vector[0] = -1
+    self.player.force_computer.velocity_vector[1] = -4
+    self.player.force_computer.acceleration_vector[0] = 0
+    self.player.force_computer.ground_friction = 0
 
   def __init_attributes(self):
     ## the level name
     self.name = ""
+    ## holds the level scores, the items of the list are tuples
+    #  (name, score, time in ms)
+    self.scores = []
     ## state of the game
     self.state = Level.STATE_PLAYING
     ## how many eggs are there left in the level
@@ -292,7 +343,7 @@ class Level:
     ## contains enemies
     self.enemies = []
     ## plays the sounds in the game
-    self.sound_player = SoundPlayer()
+    self.sound_player = None
     ## gravity force
     self.gravity = 4.7
     ## time from the level start in miliseconds
@@ -315,8 +366,9 @@ class Level:
 
     return self.map_array[x][y]
 
-  def __init__(self):
+  def __init__(self, sound_player):
     self.__init_attributes()
+    self.sound_player = sound_player
 
 #-----------------------------------------------------------------------
 
@@ -336,6 +388,8 @@ class Movable(object):
     ## reference to a level in which the object is placed (for colision
     #  detection)
     self.level = None
+    ## says if collisions are applied when moving
+    self.solid = True
 
   ## Check if the object collides with another object.
   #
@@ -390,6 +444,11 @@ class Movable(object):
   #  @param dy position difference in y, in tiles (float)
 
   def move_by(self, dx, dy):
+    if not self.solid:
+      self.position_x += dx
+      self.position_y += dy
+      return
+
     half_width = self.width / 2.0
     half_height = self.height / 2.0
 
@@ -491,6 +550,11 @@ class Player(Movable):
     ## whether the player is flapping its wings
     self.flapping_wings = False
     self.last_quack_time = -999999
+    ## force computer of the player
+    self.force_computer = ForceComputer(self)
+
+  def jump(self):
+    self.force_computer.velocity_vector[1] = -3.7
 
   ## Makes the player quack and takes appropriate actions (tells the
   #  level about it etc).
@@ -505,6 +569,9 @@ class Player(Movable):
   def __init__(self, level):
     super(Player,self).__init__(level)
     self.__init_attributes()
+    self.force_computer.acceleration_vector[0] = self.level.gravity     # set the gravity
+    self.force_computer.acceleration_vector[1] = 0
+
 
 #-----------------------------------------------------------------------
 
@@ -600,9 +667,13 @@ class SoundPlayer:
       return
 
     self.sound_quack = pygame.mixer.Sound("resources/quack.wav")
+    self.sound_trampoline = pygame.mixer.Sound("resources/trampoline.wav")
 
   def play_quack(self):
     self.sound_quack.play()
+
+  def play_trampoline(self):
+    self.sound_trampoline.play()
 
 #-----------------------------------------------------------------------
 
@@ -616,6 +687,8 @@ class Renderer:
   def __init_attributes(self):
     ## normal sized font
     self.font_normal = pygame.font.Font("resources/Folktale.ttf",28)
+    ## small sized font
+    self.font_small = pygame.font.Font("resources/larabiefont.ttf",20)
     ## the text color
     self.font_color = (100,50,0)
     ## reference to a level being rendered
@@ -638,6 +711,8 @@ class Renderer:
     self.tile_images = {}
     ## contains the level background image
     self.background_image = None
+    ## contains prerendered image of high score text
+    self.scores_image = None
     ## contains flying enemy images
     self.enemy_flying_images = []
     enemy_flying_mask = pygame.image.load("resources/robot_flying_1_mask.bmp")
@@ -710,7 +785,7 @@ class Renderer:
   #
   #  @param level Level object
 
-  def set_level(self,level):
+  def set_level(self, level):
     self._level = level
 
     # load the level background image:
@@ -736,6 +811,16 @@ class Renderer:
       # tile variants:
       for variant_number in range(tile[2]):
         self.tile_images[tile[0]].append(prepare_image(pygame.image.load("resources/tile_" + tile[1] + "_" + str(variant_number + 1) + ".bmp")))
+
+    # make the score image:
+
+    self.scores_image = prepare_image(pygame.Surface((250,200)),pygame.Color(0,0,0))
+    text_image = self.font_normal.render("top scores:",1,self.font_color)
+    self.scores_image.blit(text_image,(0,0))
+
+    for i in range(min(3,len(self._level.scores))):
+      text_image = self.font_small.render(text_to_fixed_width(self._level.scores[i][0],10) + " " + text_to_fixed_width(str(self._level.scores[i][1]),6) + " " + text_to_fixed_width(str(self._level.scores[i][2]),6),1,self.font_color)
+      self.scores_image.blit(text_image,(0,30 + (i + 1) * 20))
 
   ## Private method, checks if the tile at given position in the level
   #  has a top layer (i.e. there is no other tile above it) and what
@@ -874,11 +959,15 @@ class Renderer:
 
     # draw the GUI:
 
-    result.blit(self.score_bar_image,(22,20))
+    line_height = 30
+
+   # result.blit(self.score_bar_image,(22,20))
     text_image = self.font_normal.render("time: " + str(int(self._level.time / 1000.0)),1,self.font_color)
     result.blit(text_image,(50,50))
     text_image = self.font_normal.render("score: ",1,self.font_color)
-    result.blit(text_image,(50,80))
+    result.blit(text_image,(50,50 + line_height))
+
+    result.blit(self.scores_image,(self.screen_width - 300,50))
 
     return result
 
@@ -961,18 +1050,20 @@ FLYING_FORCE = 2    # what number is substracted from gravity when flapping the 
 
 pygame.init()
 
-l = Level()
-l.load_from_file("resources/level1.lvl")
 
-fc = ForceComputer(l.player)
-
-fc.acceleration_vector[0] = 0
-fc.acceleration_vector[1] = l.gravity    # gravity
 
 screen_width = 1024
 screen_height = 768
 
 screen = pygame.display.set_mode((screen_width,screen_height))
+
+pygame.display.toggle_fullscreen()
+
+sound_player = SoundPlayer()
+
+l = Level(sound_player)
+l.load_from_file("resources/level1.lvl")
+
 renderer = Renderer(screen_width,screen_height)
 
 renderer.set_level(l)
@@ -1017,36 +1108,39 @@ while 1:
       elif event.key == pygame.K_SPACE:
         l.player.flapping_wings = False
 
-  if key_up:
-    if not l.player.state in [Player.PLAYER_STATE_JUMPING_UP, Player.PLAYER_STATE_JUMPING_DOWN] and not l.player.is_in_air():
-      fc.velocity_vector[1] = -3.7
+  if l.state == Level.STATE_PLAYING:
+    if key_up:
+      if not l.player.state in [Player.PLAYER_STATE_JUMPING_UP, Player.PLAYER_STATE_JUMPING_DOWN] and not l.player.is_in_air():
+        l.player.jump()
 
-  if key_right and not key_left:
-    fc.acceleration_vector[0] = 20.0
-  elif key_left and not key_right:
-    fc.acceleration_vector[0] = -20.0
-  else:
-    fc.acceleration_vector[0] = 0
+    if key_right and not key_left:
+      l.player.force_computer.acceleration_vector[0] = 20.0
+    elif key_left and not key_right:
+      l.player.force_computer.acceleration_vector[0] = -20.0
+    else:
+      l.player.force_computer.acceleration_vector[0] = 0
 
-  if l.player.flapping_wings:
-    fc.acceleration_vector[1] = l.gravity - FLYING_FORCE
-  else:
-    fc.acceleration_vector[1] = l.gravity
+    if l.player.flapping_wings:
+      l.player.force_computer.acceleration_vector[1] = l.gravity - FLYING_FORCE
+    else:
+      l.player.force_computer.acceleration_vector[1] = l.gravity
+
+    renderer.set_camera_position(int(l.player.position_x * Renderer.TILE_WIDTH),int(l.player.position_y * Renderer.TILE_HEIGHT))
 
   if state_update_counter == 0:
-    if fc.velocity_vector[1] > 0.1:
+    if l.player.force_computer.velocity_vector[1] > 0.1:
       l.player.state = Player.PLAYER_STATE_JUMPING_DOWN
-    elif fc.velocity_vector[1] < -0.1:
+    elif l.player.force_computer.velocity_vector[1] < -0.1:
       l.player.state = Player.PLAYER_STATE_JUMPING_UP
     else:
-      if fc.velocity_vector[0] > 0.1 or fc.velocity_vector[0] < -0.1:
+      if l.player.force_computer.velocity_vector[0] > 0.1 or l.player.force_computer.velocity_vector[0] < -0.1:
         l.player.state = Player.PLAYER_STATE_WALKING
       else:
         l.player.state = Player.PLAYER_STATE_STANDING
 
-    if fc.acceleration_vector[0] > 0.1:
+    if l.player.force_computer.acceleration_vector[0] > 0.1:
       l.player.facing_right = True
-    elif fc.acceleration_vector[0] < -0.1:
+    elif l.player.force_computer.acceleration_vector[0] < -0.1:
       l.player.facing_right = False
 
   enemy_step_length = frame_time * 0.001
@@ -1069,11 +1163,9 @@ while 1:
   #if key_down:
     #l.player.move_by(0,0.01)
 
-  fc.execute_step()
+  l.player.force_computer.execute_step()
 
   l.update()
-
-  renderer.set_camera_position(int(l.player.position_x * Renderer.TILE_WIDTH),int(l.player.position_y * Renderer.TILE_HEIGHT))
 
   screen.blit(renderer.render_level(),(0,0))
   pygame.display.flip()
