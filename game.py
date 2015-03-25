@@ -11,6 +11,7 @@ import pygame
 import sys
 import math
 import random
+import pyganim
 
 # time of the last frame in milliseconds
 frame_time = 0.0
@@ -150,6 +151,10 @@ class MapGridObject:
 
 class Level:
 
+  STATE_PLAYING = 0
+  STATE_WON = 1
+  STATE_LOST = 2
+
   ## Loads the level from given file.
   #
   #  @param filename file to be loaded
@@ -208,19 +213,24 @@ class Level:
 
             helper_object = MapGridObject.get_instance_from_string(helper_list[pos_x])
 
-            if helper_object != None and helper_object.object_type == MapGridObject.OBJECT_PLAYER:
+            if helper_object == None:
+              self.map_array[pos_x][pos_y] = helper_object
+            elif helper_object.object_type == MapGridObject.OBJECT_PLAYER:
               self.player = Player(self)
               self.player.position_x = pos_x + 0.5
               self.player.position_y = pos_y + 0.5
-            elif helper_object != None and helper_object.object_type == MapGridObject.OBJECT_ENEMY_FLYING:
+            elif helper_object.object_type == MapGridObject.OBJECT_ENEMY_FLYING:
               self.enemies.append(Enemy(self,Enemy.ENEMY_FLYING))
               self.enemies[-1].position_x = pos_x + 0.5
               self.enemies[-1].position_y = pos_y + 0.5
-            elif helper_object != None and helper_object.object_type == MapGridObject.OBJECT_ENEMY_GROUND:
+            elif helper_object.object_type == MapGridObject.OBJECT_ENEMY_GROUND:
               self.enemies.append(Enemy(self,Enemy.ENEMY_GROUND))
               self.enemies[-1].position_x = pos_x + 0.5
               self.enemies[-1].position_y = pos_y + 0.5
             else:
+              if helper_object.object_type == MapGridObject.OBJECT_EGG:
+                self.eggs_left += 1
+
               self.map_array[pos_x][pos_y] = helper_object
 
           pos_y += 1
@@ -243,10 +253,24 @@ class Level:
         self.map_array[player_tile_x][player_tile_y] = None
       elif object_at_player_tile.object_type == MapGridObject.OBJECT_EGG:
         self.map_array[player_tile_x][player_tile_y] = None
+        self.eggs_left -= 1
+      elif object_at_player_tile.object_type == MapGridObject.OBJECT_FINISH:
+        if self.eggs_left <= 0:
+          self.state = Level.STATE_WON
+
+    # check colissions of player with enemies:
+
+    for enemy in self.enemies:
+      if self.player.collides(enemy):
+        self.state = Level.STATE_LOST
 
   def __init_attributes(self):
     ## the level name
     self.name = ""
+    ## state of the game
+    self.state = Level.STATE_PLAYING
+    ## how many eggs are there left in the level
+    self.eggs_left = 0
     ## the level background name
     self.background_name = ""
     ## background color (pygame.Color)
@@ -267,6 +291,8 @@ class Level:
     self.player = None
     ## contains enemies
     self.enemies = []
+    ## plays the sounds in the game
+    self.sound_player = SoundPlayer()
     ## gravity force
     self.gravity = 4.7
     ## time from the level start in miliseconds
@@ -310,6 +336,36 @@ class Movable(object):
     ## reference to a level in which the object is placed (for colision
     #  detection)
     self.level = None
+
+  ## Check if the object collides with another object.
+  #
+  #  @param with_what object to check the collision with (Movable)
+  #  @return True if the objects collide, otherwise False
+
+  def collides(self, with_what):
+    if ((self.position_x < with_what.position_x and
+         self.position_x < with_what.position_x + with_what.width and
+         self.position_x + self.width < with_what.position_x and
+         self.position_x + self.width < with_what.position_x + with_what.width)
+         or
+         (self.position_x > with_what.position_x and
+         self.position_x > with_what.position_x + with_what.width and
+         self.position_x + self.width > with_what.position_x and
+         self.position_x + self.width > with_what.position_x + with_what.width)):
+      return False
+
+    if ((self.position_y < with_what.position_y and
+         self.position_y < with_what.position_y + with_what.height and
+         self.position_y + self.height < with_what.position_y and
+         self.position_y + self.height < with_what.position_y + with_what.height)
+         or
+         (self.position_y > with_what.position_y and
+         self.position_y > with_what.position_y + with_what.height and
+         self.position_y + self.height > with_what.position_y and
+         self.position_y + self.height > with_what.position_y + with_what.height)):
+      return False
+
+    return True
 
   ## Checks if the object is in the air (i.e. there is no tile right
   #  below it)
@@ -424,6 +480,8 @@ class Player(Movable):
   PLAYER_STATE_WALKING = 1
   PLAYER_STATE_JUMPING_UP = 2
   PLAYER_STATE_JUMPING_DOWN = 3
+  QUACK_COOLDOWN = 5000       # quack cooldown time in milliseconds
+  QUACK_DURATION = 2500       # for how long the quack immobilises the enemies
 
   def __init_attributes(self):
     ## basic player state
@@ -432,6 +490,17 @@ class Player(Movable):
     self.facing_right = True
     ## whether the player is flapping its wings
     self.flapping_wings = False
+    self.last_quack_time = -999999
+
+  ## Makes the player quack and takes appropriate actions (tells the
+  #  level about it etc).
+
+  def quack(self):
+    if pygame.time.get_ticks() < self.last_quack_time + Player.QUACK_COOLDOWN:
+      return
+
+    self.last_quack_time = pygame.time.get_ticks()
+    self.level.sound_player.play_quack()
 
   def __init__(self, level):
     super(Player,self).__init__(level)
@@ -450,8 +519,16 @@ class Enemy(Movable):
   def ai_move(self):
     self.force_computer.execute_step()
 
+    if pygame.time.get_ticks() < self.level.player.last_quack_time + Player.QUACK_DURATION:  # quack is active => monsters don't move
+      self.force_computer.velocity_vector[0] = 0
+
+      if self.enemy_type == Enemy.ENEMY_FLYING:
+        self.force_computer.velocity_vector[1] = 0
+
+      return
+
     if pygame.time.get_ticks() >= self.next_direction_change:
-      self.next_direction_change = pygame.time.get_ticks() + 1000
+      self.next_direction_change = pygame.time.get_ticks() + random.randint(500,2000)
       self.__recompute_direction()
 
   ## Private method, recomputes the direction of movement to a new
@@ -514,11 +591,27 @@ class CharacterImageContainer:
 
 #-----------------------------------------------------------------------
 
+class SoundPlayer:
+
+  def __init__(self):
+    pygame.mixer.init()
+
+    if not pygame.mixer.get_init:
+      return
+
+    self.sound_quack = pygame.mixer.Sound("resources/quack.wav")
+
+  def play_quack(self):
+    self.sound_quack.play()
+
+#-----------------------------------------------------------------------
+
 class Renderer:
   TILE_WIDTH = 200
   TILE_HEIGHT = 200
   TOP_LAYER_OFFSET = 10
   TOP_LAYER_LEFT_WIDTH = 23
+  QUACK_LENGTH = 350
 
   def __init_attributes(self):
     ## normal sized font
@@ -718,7 +811,10 @@ class Renderer:
           elif map_grid_object.object_type == MapGridObject.OBJECT_TRAMPOLINE:
             result.blit(self.trampoline_image,(x,y))
           elif map_grid_object.object_type == MapGridObject.OBJECT_FINISH:
-            result.blit(self.teleport_active_image,(x,y))
+            if self._level.eggs_left > 0:
+              result.blit(self.teleport_inactive_image,(x,y))
+            else:
+              result.blit(self.teleport_active_image,(x,y))
 
     # draw the player:
 
@@ -731,7 +827,12 @@ class Renderer:
     else:
       flapping_animation_frame = 0
 
-    if self._level.player.state == Player.PLAYER_STATE_STANDING:
+    if pygame.time.get_ticks() < self._level.player.last_quack_time + Renderer.QUACK_LENGTH:
+      if self._level.player.facing_right:
+        player_image = self.player_images.special[0]
+      else:
+        player_image = self.player_images.special[1]
+    elif self._level.player.state == Player.PLAYER_STATE_STANDING:
       if self._level.player.facing_right:
         player_image = self.player_images.standing[0]
       else:
@@ -902,6 +1003,8 @@ while 1:
         key_down = True
       elif event.key == pygame.K_SPACE:
         l.player.flapping_wings = True
+      elif event.key == pygame.K_RCTRL or event.key == pygame.K_LCTRL:
+        l.player.quack()
     elif event.type == pygame.KEYUP:
       if event.key == pygame.K_RIGHT:
         key_right = False
