@@ -712,6 +712,8 @@ class Renderer:
     self.background_image = None
     ## contains prerendered image of high score text
     self.scores_image = None
+    arrow_mask = pygame.image.load("resources/arrow_mask.bmp")
+    self.arrow_image = prepare_image(pygame.image.load("resources/arrow.bmp"),transparency_mask = arrow_mask)
     ## contains flying enemy images
     self.enemy_flying_images = []
     enemy_flying_mask = pygame.image.load("resources/robot_flying_1_mask.bmp")
@@ -851,9 +853,28 @@ class Renderer:
   #  @param menu menu screen to be rendered (Menu)
   #  @return image (Surface) with the menu rendered
 
-  def render_menu(menu):
+  def render_menu(self, menu):
     result = pygame.Surface((self.screen_width,self.screen_height))
-    result.fill((0,255,0))
+    result.fill((255,255,255))
+
+    i = 0
+
+    while i < len(menu.items):
+      text_image = self.font_normal.render(menu.items[i],1,(0,0,0))
+      result.blit(text_image,(100,100 + i * 40))
+
+      if i == menu.selected_item:
+        result.blit(self.arrow_image,(50,95 + i * 40))
+
+      i += 1
+
+    i = 0
+
+    while i < len(menu.text_lines):
+      text_image = self.font_small.render(menu.text_lines[i],1,(0,0,0))
+      result.blit(text_image,(300,100 + i * 30))
+      i += 1
+
     return result
 
   ## Renders the level (without GUI).
@@ -1058,6 +1079,14 @@ class Menu:
     self.items = []
     ## index of the selected item
     self.selected_item = 0
+    ## optional text to be displayed in the menu
+    self.text_lines = []
+
+  def cursor_up(self):
+    self.selected_item = max(self.selected_item - 1,0)
+
+  def cursor_down(self):
+    self.selected_item = min(self.selected_item + 1,len(self.items) - 1)
 
 #-----------------------------------------------------------------------
 
@@ -1069,38 +1098,59 @@ class Game:
   STATE_MENU_ABOUT = 1
   STATE_MENU_PLAY = 2
   STATE_IN_GAME = 3
+  VERSION = "1.0"
 
   FLYING_FORCE = 2    # what number is substracted from gravity when flapping the ducks wings
 
   UPDATE_STATE_AFTER_FRAMES = 7
 
   def __init__(self):
-    self.state = Game.STATE_IN_GAME
+    self.state = Game.STATE_MENU_MAIN
     screen_width = 1024
     screen_height = 768
     pygame.init()
     self.screen = pygame.display.set_mode((screen_width,screen_height))
     self.sound_player = SoundPlayer()
-    self.level = Level(self.sound_player)
-    self.level.load_from_file("resources/level1.lvl")
+    self.level = None
     self.renderer = Renderer(screen_width,screen_height)
-    self.renderer.set_level(self.level)
     self.key_up = False
     self.key_down = False
     self.key_left = False
     self.key_right = False
     self.key_space = False
     self.key_ctrl = False
-
+    self.key_return = False
+    self.key_escape = False
     self.player_state_update_counter = 0    # the player state will be updated once every n frames,
                                             # this will prevent the "jerky" sprite changing
+    self.menu_main = Menu()
+    self.menu_main.items.append("new game")
+    self.menu_main.items.append("about")
+    self.menu_main.items.append("exit")
+
+    self.menu_about = Menu()
+    self.menu_about.items.append("back")
+    self.menu_about.text_lines.append("Miloslav Ciz, 2015")
+    self.menu_about.text_lines.append("version " + Game.VERSION)
+    self.menu_about.text_lines.append("powered by Python + Pygame")
+
+    self.menu_play = Menu()
+    self.menu_play.items.append("level 1")
+    self.menu_play.items.append("level 2")
+    self.menu_play.items.append("level 3")
+    self.menu_play.items.append("level 4")
+    self.menu_play.items.append("level 5")
+    self.menu_play.items.append("level 6")
+    self.menu_play.items.append("back")
+
   ## Runs the game.
 
   def run(self):
     global frame_time
     rendered_frame = None
+    done = False
 
-    while True:
+    while not done:
       time_start = pygame.time.get_ticks()
 
       for event in pygame.event.get():
@@ -1119,6 +1169,10 @@ class Game:
             self.key_space = True
           elif event.key == pygame.K_RCTRL or event.key == pygame.K_LCTRL:
             self.key_ctrl = True
+          elif event.key == pygame.K_RETURN:
+            self.key_return = True
+          elif event.key == pygame.K_ESCAPE:
+            self.key_escape = True
         elif event.type == pygame.KEYUP:
           if event.key == pygame.K_RIGHT:
             self.key_right = False
@@ -1132,8 +1186,15 @@ class Game:
             self.key_space = False
           elif event.key == pygame.K_RCTRL or event.key == pygame.K_LCTRL:
             self.key_ctrl = False
+          elif event.key == pygame.K_RETURN:
+            self.key_return = False
+          elif event.key == pygame.K_ESCAPE:
+            self.key_escape = False
 
       if self.state == Game.STATE_IN_GAME:
+        if self.key_escape:
+          self.state = Game.STATE_MENU_MAIN
+
         if self.level.state == Level.STATE_PLAYING:
           if self.key_up:
             if not self.level.player.state in [Player.PLAYER_STATE_JUMPING_UP, Player.PLAYER_STATE_JUMPING_DOWN] and not self.level.player.is_in_air():
@@ -1183,6 +1244,57 @@ class Game:
             self.level.player.facing_right = False
 
         self.screen.blit(self.renderer.render_level(),(0,0))
+        pygame.display.flip()
+      elif self.state == Game.STATE_MENU_MAIN:
+        if self.key_up:
+          self.menu_main.cursor_up()
+          self.key_up = False
+
+        if self.key_down:
+          self.menu_main.cursor_down()
+          self.key_down = False
+
+        if self.key_return:
+          if self.menu_main.selected_item == 0:
+            self.state = Game.STATE_MENU_PLAY
+          elif self.menu_main.selected_item == 1:
+            self.state = Game.STATE_MENU_ABOUT
+          elif self.menu_main.selected_item == 2:
+            done = True
+
+          self.key_return = False
+
+        self.screen.blit(self.renderer.render_menu(self.menu_main),(0,0))
+        pygame.display.flip()
+      elif self.state == Game.STATE_MENU_ABOUT:
+        if self.key_return:
+          self.state = Game.STATE_MENU_MAIN
+          self.key_return = False
+
+        self.screen.blit(self.renderer.render_menu(self.menu_about),(0,0))
+        pygame.display.flip()
+      elif self.state == Game.STATE_MENU_PLAY:
+        if self.key_up:
+          self.menu_play.cursor_up()
+          self.key_up = False
+
+        if self.key_down:
+          self.menu_play.cursor_down()
+          self.key_down = False
+
+        if self.key_return:
+          if self.menu_play.selected_item == 6:
+            self.state = Game.STATE_MENU_MAIN
+          else:
+            level_name = "level" + str(self.menu_play.selected_item + 1) + ".lvl"
+            self.level = Level(self.sound_player)
+            self.level.load_from_file("resources/" + level_name)
+            self.renderer.set_level(self.level)
+            self.state = Game.STATE_IN_GAME
+
+          self.key_return = False
+
+        self.screen.blit(self.renderer.render_menu(self.menu_play),(0,0))
         pygame.display.flip()
 
       frame_time = pygame.time.get_ticks() - time_start
