@@ -284,6 +284,7 @@ class Level:
       elif object_at_player_tile.object_type == MapGridObject.OBJECT_FINISH:
         if self.eggs_left <= 0:
           self.state = Level.STATE_WON
+          self.player.force_computer.velocity_vector[1] = 0
       elif object_at_player_tile.object_type == MapGridObject.OBJECT_SPIKES:
         self.set_lost()
         return
@@ -734,6 +735,7 @@ class Renderer:
     teleport_mask = pygame.image.load("resources/teleport_mask.bmp")
     self.teleport_inactive_image = prepare_image(pygame.image.load("resources/teleport_1.bmp"),transparency_mask = teleport_mask)
     self.teleport_active_image = prepare_image(pygame.image.load("resources/teleport_2.bmp"),transparency_mask = teleport_mask)
+    self.logo_image = prepare_image(pygame.image.load("resources/logo.bmp"))
     ## contains coin animation images
     self.coin_images = []
 
@@ -857,6 +859,8 @@ class Renderer:
     result = pygame.Surface((self.screen_width,self.screen_height))
     result.fill((255,255,255))
 
+    result.blit(self.logo_image,(self.screen_width / 2 - self.logo_image.get_width() / 2,self.screen_height / 2 - self.logo_image.get_height() / 2))
+
     i = 0
 
     while i < len(menu.items):
@@ -872,7 +876,7 @@ class Renderer:
 
     while i < len(menu.text_lines):
       text_image = self.font_small.render(menu.text_lines[i],1,(0,0,0))
-      result.blit(text_image,(300,100 + i * 30))
+      result.blit(text_image,(100,self.screen_height / 2 + i * 30))
       i += 1
 
     return result
@@ -996,8 +1000,14 @@ class Renderer:
     result.blit(text_image,(50,50))
     text_image = self.font_normal.render("score: ",1,self.font_color)
     result.blit(text_image,(50,50 + line_height))
-
     result.blit(self.scores_image,(self.screen_width - 300,50))
+
+    if self._level.state == Level.STATE_LOST:
+      text_image = self.font_normal.render("you lost",1,(255,0,0))
+      result.blit(text_image,(self.screen_width / 2 - text_image.get_width() / 2,self.screen_height / 2 - text_image.get_height() / 2))
+    elif self._level.state == Level.STATE_WON:
+      text_image = self.font_normal.render("you won",1,(0,255,0))
+      result.blit(text_image,(self.screen_width / 2 - text_image.get_width() / 2,self.screen_height / 2 - text_image.get_height() / 2))
 
     return result
 
@@ -1149,6 +1159,8 @@ class Game:
     global frame_time
     rendered_frame = None
     done = False
+    wait = False     # whether the waiting is going on when the game is over
+    wait_until = 0
 
     while not done:
       time_start = pygame.time.get_ticks()
@@ -1218,6 +1230,13 @@ class Game:
             self.level.player.force_computer.acceleration_vector[1] = self.level.gravity
 
           self.renderer.set_camera_position(int(self.level.player.position_x * Renderer.TILE_WIDTH),int(self.level.player.position_y * Renderer.TILE_HEIGHT))
+        else:
+          if not wait:
+            wait_until = pygame.time.get_ticks() + 3000 # wait 2 seconds
+            wait = True
+          elif pygame.time.get_ticks() >= wait_until:
+            wait = False
+            self.state = Game.STATE_MENU_MAIN
 
         for enemy in self.level.enemies:
           enemy.ai_move()
