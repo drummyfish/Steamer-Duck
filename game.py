@@ -18,7 +18,6 @@ frame_time = 0.0
 
 # after how many frames the player state will be updated (this is
 # only a graphics thing)
-UPDATE_STATE_AFTER_FRAMES = 7
 
 #-----------------------------------------------------------------------
 
@@ -847,6 +846,16 @@ class Renderer:
   def __map_position_to_screen_position(self, x, y):
     return (x * Renderer.TILE_WIDTH - self._camera_x,y * Renderer.TILE_HEIGHT - self._camera_y)
 
+  ## Renders given menu.
+  #
+  #  @param menu menu screen to be rendered (Menu)
+  #  @return image (Surface) with the menu rendered
+
+  def render_menu(menu):
+    result = pygame.Surface((self.screen_width,self.screen_height))
+    result.fill((0,255,0))
+    return result
+
   ## Renders the level (without GUI).
   #
   #  @return image with rendered level (pygame.Surface)
@@ -995,8 +1004,8 @@ class Renderer:
 
 #-----------------------------------------------------------------------
 
-## A decorator that
-#
+## A decorator that moves given movable object acoording to forces it
+#  computes.
 
 class ForceComputer:
   def __init_attributes(self):
@@ -1032,11 +1041,6 @@ class ForceComputer:
 
     self.velocity_vector = [(object_position2[0] - object_position[0]) / seconds,(object_position2[1] - object_position[1]) / seconds]
 
-   # self.velocity_vector[0] *= self.ground_friction * seconds
-
-  #  new_speed_x = self.velocity_vector[0] + self.acceleration_vector[0] * seconds
-  #  self.velocity_vector[0] = min(new_speed_x,self.maximum_horizontal_speed) if new_speed_x > 0 else max(new_speed_x,-1 * self.maximum_horizontal_speed)
-
     self.velocity_vector[0] += (self.acceleration_vector[0] - self.velocity_vector[0] * self.ground_friction) * seconds
     self.velocity_vector[1] += self.acceleration_vector[1] * seconds
 
@@ -1046,132 +1050,156 @@ class ForceComputer:
 
 #-----------------------------------------------------------------------
 
-FLYING_FORCE = 2    # what number is substracted from gravity when flapping the ducks wings
+## Represents a menu screen.
 
-pygame.init()
+class Menu:
+  def __init__(self):
+    ## list of menu items
+    self.items = []
+    ## index of the selected item
+    self.selected_item = 0
+
+#-----------------------------------------------------------------------
+
+## The main game class handling the inpu management, calling renderer,
+#  the main game loop etc.
+
+class Game:
+  STATE_MENU_MAIN = 0
+  STATE_MENU_ABOUT = 1
+  STATE_MENU_PLAY = 2
+  STATE_IN_GAME = 3
+
+  FLYING_FORCE = 2    # what number is substracted from gravity when flapping the ducks wings
+
+  UPDATE_STATE_AFTER_FRAMES = 7
+
+  def __init__(self):
+    self.state = Game.STATE_IN_GAME
+    screen_width = 1024
+    screen_height = 768
+    pygame.init()
+    self.screen = pygame.display.set_mode((screen_width,screen_height))
+    self.sound_player = SoundPlayer()
+    self.level = Level(self.sound_player)
+    self.level.load_from_file("resources/level1.lvl")
+    self.renderer = Renderer(screen_width,screen_height)
+    self.renderer.set_level(self.level)
+    self.key_up = False
+    self.key_down = False
+    self.key_left = False
+    self.key_right = False
+    self.key_space = False
+    self.key_ctrl = False
+
+    self.player_state_update_counter = 0    # the player state will be updated once every n frames,
+                                            # this will prevent the "jerky" sprite changing
+  ## Runs the game.
+
+  def run(self):
+    global frame_time
+    rendered_frame = None
+
+    while True:
+      time_start = pygame.time.get_ticks()
+
+      for event in pygame.event.get():
+        if event.type == pygame.QUIT: sys.exit()
+
+        if event.type == pygame.KEYDOWN:
+          if event.key == pygame.K_RIGHT:
+            self.key_right = True
+          elif event.key == pygame.K_UP:
+            self.key_up = True
+          elif event.key == pygame.K_LEFT:
+            self.key_left = True
+          elif event.key == pygame.K_DOWN:
+            self.key_down = True
+          elif event.key == pygame.K_SPACE:
+            self.key_space = True
+          elif event.key == pygame.K_RCTRL or event.key == pygame.K_LCTRL:
+            self.key_ctrl = True
+        elif event.type == pygame.KEYUP:
+          if event.key == pygame.K_RIGHT:
+            self.key_right = False
+          elif event.key == pygame.K_LEFT:
+            self.key_left = False
+          elif event.key == pygame.K_UP:
+            self.key_up = False
+          elif event.key == pygame.K_DOWN:
+            self.key_down = False
+          elif event.key == pygame.K_SPACE:
+            self.key_space = False
+          elif event.key == pygame.K_RCTRL or event.key == pygame.K_LCTRL:
+            self.key_ctrl = False
+
+      if self.state == Game.STATE_IN_GAME:
+        if self.level.state == Level.STATE_PLAYING:
+          if self.key_up:
+            if not self.level.player.state in [Player.PLAYER_STATE_JUMPING_UP, Player.PLAYER_STATE_JUMPING_DOWN] and not self.level.player.is_in_air():
+              self.level.player.jump()
+
+          if self.key_right and not self.key_left:
+            self.level.player.force_computer.acceleration_vector[0] = 20.0
+          elif self.key_left and not self.key_right:
+            self.level.player.force_computer.acceleration_vector[0] = -20.0
+          else:
+            self.level.player.force_computer.acceleration_vector[0] = 0
+
+          if self.key_ctrl:
+            self.level.player.quack()
+
+          self.level.player.flapping_wings = self.key_space
+
+          if self.level.player.flapping_wings:
+            self.level.player.force_computer.acceleration_vector[1] = self.level.gravity - Game.FLYING_FORCE
+          else:
+            self.level.player.force_computer.acceleration_vector[1] = self.level.gravity
+
+          self.renderer.set_camera_position(int(self.level.player.position_x * Renderer.TILE_WIDTH),int(self.level.player.position_y * Renderer.TILE_HEIGHT))
+
+        for enemy in self.level.enemies:
+          enemy.ai_move()
+
+        self.level.player.force_computer.execute_step()
+        self.level.update()
+
+        self.player_state_update_counter = (self.player_state_update_counter + 1) % Game.UPDATE_STATE_AFTER_FRAMES
+
+        if self.player_state_update_counter == 0:
+          if self.level.player.force_computer.velocity_vector[1] > 0.1:
+            self.level.player.state = Player.PLAYER_STATE_JUMPING_DOWN
+          elif self.level.player.force_computer.velocity_vector[1] < -0.1:
+            self.level.player.state = Player.PLAYER_STATE_JUMPING_UP
+          else:
+            if self.level.player.force_computer.velocity_vector[0] > 0.1 or self.level.player.force_computer.velocity_vector[0] < -0.1:
+              self.level.player.state = Player.PLAYER_STATE_WALKING
+            else:
+              self.level.player.state = Player.PLAYER_STATE_STANDING
+
+          if self.level.player.force_computer.acceleration_vector[0] > 0.1:
+            self.level.player.facing_right = True
+          elif self.level.player.force_computer.acceleration_vector[0] < -0.1:
+            self.level.player.facing_right = False
+
+        self.screen.blit(self.renderer.render_level(),(0,0))
+        pygame.display.flip()
+
+      frame_time = pygame.time.get_ticks() - time_start
+
+#-----------------------------------------------------------------------
+
+game = Game()
+game.run()
 
 
 
-screen_width = 1024
-screen_height = 768
 
-screen = pygame.display.set_mode((screen_width,screen_height))
 
-pygame.display.toggle_fullscreen()
 
-sound_player = SoundPlayer()
 
-l = Level(sound_player)
-l.load_from_file("resources/level1.lvl")
 
-renderer = Renderer(screen_width,screen_height)
 
-renderer.set_level(l)
 
-cam_x = 0;
-cam_y = 0;
-
-key_up = False
-key_down = False
-key_left = False
-key_right = False
-
-state_update_counter = 0
-
-while 1:
-  time_start = pygame.time.get_ticks()
-  for event in pygame.event.get():
-    if event.type == pygame.QUIT: sys.exit()
-
-    if event.type == pygame.KEYDOWN:
-      if event.key == pygame.K_RIGHT:
-        key_right = True
-      elif event.key == pygame.K_UP:
-        key_up = True
-      elif event.key == pygame.K_LEFT:
-        key_left = True
-      elif event.key == pygame.K_DOWN:
-        key_down = True
-      elif event.key == pygame.K_SPACE:
-        l.player.flapping_wings = True
-      elif event.key == pygame.K_RCTRL or event.key == pygame.K_LCTRL:
-        l.player.quack()
-    elif event.type == pygame.KEYUP:
-      if event.key == pygame.K_RIGHT:
-        key_right = False
-      elif event.key == pygame.K_LEFT:
-        key_left = False
-      elif event.key == pygame.K_UP:
-        key_up = False
-      elif event.key == pygame.K_DOWN:
-        key_down = False
-      elif event.key == pygame.K_SPACE:
-        l.player.flapping_wings = False
-
-  if l.state == Level.STATE_PLAYING:
-    if key_up:
-      if not l.player.state in [Player.PLAYER_STATE_JUMPING_UP, Player.PLAYER_STATE_JUMPING_DOWN] and not l.player.is_in_air():
-        l.player.jump()
-
-    if key_right and not key_left:
-      l.player.force_computer.acceleration_vector[0] = 20.0
-    elif key_left and not key_right:
-      l.player.force_computer.acceleration_vector[0] = -20.0
-    else:
-      l.player.force_computer.acceleration_vector[0] = 0
-
-    if l.player.flapping_wings:
-      l.player.force_computer.acceleration_vector[1] = l.gravity - FLYING_FORCE
-    else:
-      l.player.force_computer.acceleration_vector[1] = l.gravity
-
-    renderer.set_camera_position(int(l.player.position_x * Renderer.TILE_WIDTH),int(l.player.position_y * Renderer.TILE_HEIGHT))
-
-  if state_update_counter == 0:
-    if l.player.force_computer.velocity_vector[1] > 0.1:
-      l.player.state = Player.PLAYER_STATE_JUMPING_DOWN
-    elif l.player.force_computer.velocity_vector[1] < -0.1:
-      l.player.state = Player.PLAYER_STATE_JUMPING_UP
-    else:
-      if l.player.force_computer.velocity_vector[0] > 0.1 or l.player.force_computer.velocity_vector[0] < -0.1:
-        l.player.state = Player.PLAYER_STATE_WALKING
-      else:
-        l.player.state = Player.PLAYER_STATE_STANDING
-
-    if l.player.force_computer.acceleration_vector[0] > 0.1:
-      l.player.facing_right = True
-    elif l.player.force_computer.acceleration_vector[0] < -0.1:
-      l.player.facing_right = False
-
-  enemy_step_length = frame_time * 0.001
-
-  for enemy in l.enemies:
-    enemy.ai_move()
-
-#  elif fc.velocity_vector[1] < -0.01:
-#    l.player.state = Player.PLAYER_STATE_JUMPING_UP
-
-  #if key_right:
-    #l.player.move_by(0.01,0)
-
-  #if key_left:
-    #l.player.move_by(-0.01,0)
-
-  #if key_up:
-    #l.player.move_by(0,-0.01)
-
-  #if key_down:
-    #l.player.move_by(0,0.01)
-
-  l.player.force_computer.execute_step()
-
-  l.update()
-
-  screen.blit(renderer.render_level(),(0,0))
-  pygame.display.flip()
-
-  frame_time = pygame.time.get_ticks() - time_start
-
-  state_update_counter = (state_update_counter + 1) % UPDATE_STATE_AFTER_FRAMES
 
 
