@@ -254,6 +254,8 @@ class Level:
             else:
               if helper_object.object_type == MapGridObject.OBJECT_EGG:
                 self.eggs_left += 1
+              elif helper_object.object_type == MapGridObject.OBJECT_COIN:
+                self.coins_total += 1
 
               self.map_array[pos_x][pos_y] = helper_object
 
@@ -278,14 +280,18 @@ class Level:
 
     if object_at_player_tile != None:
       if object_at_player_tile.object_type == MapGridObject.OBJECT_COIN:
+        self.sound_player.play_coin()
         self.map_array[player_tile_x][player_tile_y] = None
+        self.coins_collected += 1
       elif object_at_player_tile.object_type == MapGridObject.OBJECT_EGG:
+        self.sound_player.play_click()
         self.map_array[player_tile_x][player_tile_y] = None
         self.eggs_left -= 1
       elif object_at_player_tile.object_type == MapGridObject.OBJECT_FINISH:
         if self.eggs_left <= 0:
           self.state = Level.STATE_WON
           self.player.force_computer.velocity_vector[0] = 0
+          self.sound_player.play_win()
       elif object_at_player_tile.object_type == MapGridObject.OBJECT_SPIKES:
         self.set_lost()
         return
@@ -293,6 +299,10 @@ class Level:
     if object_under_player_tile != None and object_under_player_tile.object_type == MapGridObject.OBJECT_TRAMPOLINE and not self.player.is_in_air():
       self.player.force_computer.velocity_vector[1] = -10
       self.sound_player.play_trampoline()
+
+    # compute the score:
+
+    self.score = int(20000000.0 / (pygame.time.get_ticks() - self._time_start + 20000)) + self.coins_collected * 200
 
     # check colissions of player with enemies:
 
@@ -306,6 +316,9 @@ class Level:
     if self.state == Level.STATE_LOST:
       return
 
+    self.player.last_quack_time = -99999 # to allow the player to make quack
+    self.player.quack()
+
     self.state = Level.STATE_LOST
     self.player.solid = False
     self.player.force_computer.velocity_vector[0] = -1
@@ -316,11 +329,18 @@ class Level:
   def __init_attributes(self):
     ## the level name
     self.name = ""
+    ## current score
+    self.score = 0
     ## holds the level scores, the items of the list are tuples
     #  (name, score, time in ms)
     self.scores = []
     ## state of the game
     self.state = Level.STATE_PLAYING
+    ## total number of coins in the level, this doesn not decrease as
+    #  the player takes them
+    self.coins_total = 0
+    ## how many coins the player has collected in the level so far
+    self.coins_collected = 0
     ## how many eggs are there left in the level
     self.eggs_left = 0
     ## the level background name
@@ -655,7 +675,16 @@ class CharacterImageContainer:
 
 class SoundPlayer:
 
-  def __init__(self):
+  ## Initialises the sound player.
+  #
+  #  @param allow whether the sound is allowed or not (boolean)
+
+  def __init__(self, allow):
+    self.allowed = allow
+
+    if not self.allowed:
+      return
+
     pygame.mixer.init()
 
     if not pygame.mixer.get_init:
@@ -663,12 +692,38 @@ class SoundPlayer:
 
     self.sound_quack = pygame.mixer.Sound("resources/quack.wav")
     self.sound_trampoline = pygame.mixer.Sound("resources/trampoline.wav")
+    self.sound_coin = pygame.mixer.Sound("resources/coin.wav")
+    self.sound_click = pygame.mixer.Sound("resources/click.wav")
+    self.sound_flap = pygame.mixer.Sound("resources/flapping.wav")
+    self.sound_win = pygame.mixer.Sound("resources/win.wav")
+
+    pygame.mixer.music.load("resources/blue_dot_session.wav")
+    pygame.mixer.music.set_volume(0.5)
+    pygame.mixer.music.play()
 
   def play_quack(self):
-    self.sound_quack.play()
+    if self.allowed:
+      self.sound_quack.play()
 
   def play_trampoline(self):
-    self.sound_trampoline.play()
+    if self.allowed:
+      self.sound_trampoline.play()
+
+  def play_coin(self):
+    if self.allowed:
+      self.sound_coin.play()
+
+  def play_click(self):
+    if self.allowed:
+      self.sound_click.play()
+
+  def play_flap(self):
+    if self.allowed:
+      self.sound_flap.play()
+
+  def play_win(self):
+    if self.allowed:
+      self.sound_win.play()
 
 #-----------------------------------------------------------------------
 
@@ -779,6 +834,18 @@ class Renderer:
     self.player_images.special.append(prepare_image(pygame.image.load("resources/duck_right_quack.bmp"),transparency_mask = pygame.image.load("resources/duck_right_quack_mask.bmp")))
     self.player_images.special.append(pygame.transform.flip(self.player_images.special[0],True,False))
 
+  ## Converts number of milliseconds to a string in format:
+  #  ss:m.
+  #
+  #  @param value number of milliseconds
+  #  @return string in format described above
+
+  def __milliseconds_to_time(self, value):
+    seconds = int(value / 1000)
+    tenths = int((value % 1000) / 100)
+
+    return str(seconds) + ":" + str(tenths)
+
   ## Sets the level to be rendered.
   #
   #  @param level Level object
@@ -817,7 +884,7 @@ class Renderer:
     self.scores_image.blit(text_image,(0,0))
 
     for i in range(min(3,len(self._level.scores))):
-      text_image = self.font_small.render(text_to_fixed_width(self._level.scores[i][0],10) + " " + text_to_fixed_width(str(self._level.scores[i][1]),6) + " " + text_to_fixed_width(str(self._level.scores[i][2]),6),1,self.font_color)
+      text_image = self.font_small.render(text_to_fixed_width(self._level.scores[i][0],10) + " " + text_to_fixed_width(str(self._level.scores[i][1]),6) + " " + text_to_fixed_width(self.__milliseconds_to_time(self._level.scores[i][2]),6),1,self.font_color)
       self.scores_image.blit(text_image,(0,30 + (i + 1) * 20))
 
   ## Private method, checks if the tile at given position in the level
@@ -991,9 +1058,9 @@ class Renderer:
     line_height = 30
 
    # result.blit(self.score_bar_image,(22,20))
-    text_image = self.font_normal.render("time: " + str(int(self._level.time / 1000.0)),1,self.font_color)
+    text_image = self.font_normal.render("time: " + self.__milliseconds_to_time(self._level.time),1,self.font_color)
     result.blit(text_image,(50,50))
-    text_image = self.font_normal.render("score: ",1,self.font_color)
+    text_image = self.font_normal.render("score: " + str(self._level.score),1,self.font_color)
     result.blit(text_image,(50,50 + line_height))
     result.blit(self.scores_image,(self.screen_width - 300,50))
 
@@ -1150,6 +1217,10 @@ class Game:
     self.state = Game.STATE_MENU_MAIN
     screen_width = 1024
     screen_height = 640
+
+    if sound:
+      pygame.mixer.pre_init(22050,-16,2,512)   # smaller size of the buffer (512) prevents the audio from lagging
+
     pygame.init()
 
     os.environ['SDL_VIDEO_WINDOW_POS'] = "%d,%d" % (100,50)  # set the screen position
@@ -1167,7 +1238,7 @@ class Game:
 
     pygame.display.set_caption("steamer duck")
     pygame.mouse.set_visible(False)
-    self.sound_player = SoundPlayer()
+    self.sound_player = SoundPlayer(sound)
     self.level = None
     self.renderer = Renderer(screen_width,screen_height)
     self.key_up = False
@@ -1192,6 +1263,13 @@ class Game:
     self.menu_about.text_lines.append("powered by Python + Pygame")
     self.menu_about.text_lines.append("your name is set to: " + self.name)
 
+
+    self.menu_about.text_lines.append("")
+    self.menu_about.text_lines.append("arrows = move")
+    self.menu_about.text_lines.append("ctrl = quack")
+    self.menu_about.text_lines.append("space = flap wings")
+    self.menu_about.text_lines.append("get all eggs and get to the teleport")
+
     self.menu_play = Menu()
     self.menu_play.items.append("level 1")
     self.menu_play.items.append("level 2")
@@ -1208,6 +1286,7 @@ class Game:
     rendered_frame = None
     done = False
     wait = False     # whether the waiting is going on when the game is over
+    flapping_player = False
     wait_until = 0
 
     while not done:
@@ -1270,7 +1349,16 @@ class Game:
           if self.key_ctrl:
             self.level.player.quack()
 
-          self.level.player.flapping_wings = self.key_space
+          if self.key_space:
+            if not flapping_played:
+              self.level.sound_player.play_flap()
+              flapping_played = True
+
+            self.level.player.flapping_wings = True
+          else:
+            flapping_played = False
+            self.level.player.flapping_wings = False
+
 
           if self.level.player.flapping_wings:
             self.level.player.force_computer.acceleration_vector[1] = self.level.gravity - Game.FLYING_FORCE
