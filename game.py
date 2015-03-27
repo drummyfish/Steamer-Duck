@@ -12,6 +12,7 @@ import sys
 import math
 import random
 import pyganim
+import os
 
 # time of the last frame in milliseconds
 frame_time = 0.0
@@ -284,7 +285,7 @@ class Level:
       elif object_at_player_tile.object_type == MapGridObject.OBJECT_FINISH:
         if self.eggs_left <= 0:
           self.state = Level.STATE_WON
-          self.player.force_computer.velocity_vector[1] = 0
+          self.player.force_computer.velocity_vector[0] = 0
       elif object_at_player_tile.object_type == MapGridObject.OBJECT_SPIKES:
         self.set_lost()
         return
@@ -621,12 +622,6 @@ class Enemy(Movable):
     self.next_direction_change = 0
 
     self.enemy_type = enemy_type
-    return
-
-#-----------------------------------------------------------------------
-
-class Game:
-  def __init__(self):
     return
 
 #-----------------------------------------------------------------------
@@ -1100,6 +1095,34 @@ class Menu:
 
 #-----------------------------------------------------------------------
 
+class Config:
+  def __init__(self, filename):
+    self.sound = True
+    self.fullscreen = False
+    self.name = "player"
+
+    try:
+      lines = [line.strip() for line in open(filename)]
+
+      for line in lines:
+        line_split = line.split(":")
+        line_split[0] = line_split[0].lstrip().rstrip()
+        line_split[1] = line_split[1].lstrip().rstrip()
+
+        if line_split[0] == "sound":
+          self.sound = line_split[1] == "yes"
+        elif line_split[0] == "fullscreen":
+          self.fullscreen = line_split[1] == "yes"
+        elif line_split[0] == "name":
+          self.sound = line_split[1]
+
+    except Exception:    # make a new config file
+      output_file = open(filename,'w')
+      output_file.write("name: player\nfullscreen: no\nsound: yes\n")
+      output_file.close()
+
+#-----------------------------------------------------------------------
+
 ## The main game class handling the inpu management, calling renderer,
 #  the main game loop etc.
 
@@ -1114,12 +1137,36 @@ class Game:
 
   UPDATE_STATE_AFTER_FRAMES = 7
 
-  def __init__(self):
+  ## Initialises a new game.
+  #
+  #  @param name player name (string)
+  #  @param fullscreen whether the game will be in fullscreen or not (boolean)
+  #  @param sounds whether sounds and music will be played
+
+  def __init__(self, name, fullscreen, sound):
+    self.name = name
+    self.fullscreen = fullscreen
+    self.sound = sound
     self.state = Game.STATE_MENU_MAIN
     screen_width = 1024
-    screen_height = 768
+    screen_height = 640
     pygame.init()
-    self.screen = pygame.display.set_mode((screen_width,screen_height))
+
+    os.environ['SDL_VIDEO_WINDOW_POS'] = "%d,%d" % (100,50)  # set the screen position
+
+    if self.fullscreen:
+      fullscreen_size = (pygame.display.list_modes())[0]
+
+      if fullscreen_size != -1:
+        self.screen_width = fullscreen_size[0]
+        self.screen_height = fullscreen_size[1]
+
+      self.screen = pygame.display.set_mode((screen_width,screen_height),pygame.FULLSCREEN)
+    else:
+      self.screen = pygame.display.set_mode((screen_width,screen_height))
+
+    pygame.display.set_caption("steamer duck")
+    pygame.mouse.set_visible(False)
     self.sound_player = SoundPlayer()
     self.level = None
     self.renderer = Renderer(screen_width,screen_height)
@@ -1143,6 +1190,7 @@ class Game:
     self.menu_about.text_lines.append("Miloslav Ciz, 2015")
     self.menu_about.text_lines.append("version " + Game.VERSION)
     self.menu_about.text_lines.append("powered by Python + Pygame")
+    self.menu_about.text_lines.append("your name is set to: " + self.name)
 
     self.menu_play = Menu()
     self.menu_play.items.append("level 1")
@@ -1229,7 +1277,7 @@ class Game:
           else:
             self.level.player.force_computer.acceleration_vector[1] = self.level.gravity
 
-          self.renderer.set_camera_position(int(self.level.player.position_x * Renderer.TILE_WIDTH),int(self.level.player.position_y * Renderer.TILE_HEIGHT))
+          self.level.update()
         else:
           if not wait:
             wait_until = pygame.time.get_ticks() + 3000 # wait 2 seconds
@@ -1242,7 +1290,9 @@ class Game:
           enemy.ai_move()
 
         self.level.player.force_computer.execute_step()
-        self.level.update()
+
+        if self.level.state != Level.STATE_LOST:     # follow the player only if he's not lost
+          self.renderer.set_camera_position(int(self.level.player.position_x * Renderer.TILE_WIDTH),int(self.level.player.position_y * Renderer.TILE_HEIGHT) + 200)
 
         self.player_state_update_counter = (self.player_state_update_counter + 1) % Game.UPDATE_STATE_AFTER_FRAMES
 
@@ -1320,7 +1370,8 @@ class Game:
 
 #-----------------------------------------------------------------------
 
-game = Game()
+config = Config("config.txt")
+game = Game(config.name,config.fullscreen,config.sound)
 game.run()
 
 
