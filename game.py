@@ -11,7 +11,6 @@ import pygame
 import sys
 import math
 import random
-import pyganim
 import os
 
 # time of the last frame in milliseconds
