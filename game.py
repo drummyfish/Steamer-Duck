@@ -1356,6 +1356,8 @@ class Game:
     wait = False     # whether the waiting is going on when the game is over
     flapping_player = False
     wait_until = 0
+    cheat = False
+    cheat_buffer = [0,0]
 
     while not done:
       time_start = pygame.time.get_ticks()
@@ -1380,6 +1382,15 @@ class Game:
             self.key_return = True
           elif event.key == pygame.K_ESCAPE:
             self.key_escape = True
+          elif event.key == pygame.K_KP4:
+            cheat_buffer[0] = cheat_buffer[1]
+            cheat_buffer[1] = 4
+          elif event.key == pygame.K_KP2:
+            cheat_buffer[0] = cheat_buffer[1]
+            cheat_buffer[1] = 2
+            if cheat_buffer[0] == 4 and cheat_buffer[1] == 2:
+              self.sound_player.play_win()
+              cheat = True
         elif event.type == pygame.KEYUP:
           if event.key == pygame.K_RIGHT:
             self.key_right = False
@@ -1408,9 +1419,9 @@ class Game:
               self.level.player.jump()
 
           if self.key_right and not self.key_left:
-            self.level.player.force_computer.acceleration_vector[0] = 20.0
+            self.level.player.force_computer.acceleration_vector[0] = 40 if cheat else 20.0
           elif self.key_left and not self.key_right:
-            self.level.player.force_computer.acceleration_vector[0] = -20.0
+            self.level.player.force_computer.acceleration_vector[0] = -40 if cheat else -20.0
           else:
             self.level.player.force_computer.acceleration_vector[0] = 0
 
