@@ -1298,8 +1298,8 @@ class Game:
       fullscreen_size = (pygame.display.list_modes())[0]
 
       if fullscreen_size != -1:
-        self.screen_width = fullscreen_size[0]
-        self.screen_height = fullscreen_size[1]
+        screen_width = fullscreen_size[0]
+        screen_height = fullscreen_size[1]
 
       self.screen = pygame.display.set_mode((screen_width,screen_height),pygame.FULLSCREEN)
     else:
