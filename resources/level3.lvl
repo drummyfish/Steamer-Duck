@@ -10,12 +10,6 @@ tiles:
 1 bricks 1
 2 sand 2
 
-scores:
-tastyfish 300 4500
-me 500 6000
-someone 860 1021
-bbbb 358 3050
-
 outside:
 2
 
@@ -33,3 +27,11 @@ map:
 2;2 E   2;1 .   .   .   .   .   .   .   .   .
 2;1 C   2;1 .   .   .   X   .   .   .   .   .
 .   .   .   .   .   2;1 2;2 2;1 .   .   2;2 T
+
+scores:
+player 999 13349
+someone 860 1021
+me 500 6000
+bbbb 358 3050
+tastyfish 300 4500
+player 1015 12495

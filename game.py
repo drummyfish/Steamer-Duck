@@ -168,6 +168,8 @@ class Level:
   #  @param filename file to be loaded
 
   def load_from_file(self,filename):
+    self.filename = filename
+
     with open(filename) as input_file:
       content = input_file.readlines()
 
@@ -205,6 +207,9 @@ class Level:
         line_number += 1
 
         while True:
+          if line_number >= len(content):
+            break
+
           split_line = content[line_number].split()
 
           if len(split_line) != 3:
@@ -263,8 +268,64 @@ class Level:
 
       line_number += 1
 
+  ## Saves the scores into a file that's associated with the level
+  #  (the one that's been passed to load_from_file method).
+
+  def save_scores(self):
+    if len(self.filename) == 0:
+      return
+
+    output_lines = []
+
+    input_file = open(self.filename)
+
+    for line in input_file:
+      if line.lstrip().rstrip() == "scores:":
+        break
+      else:
+        output_lines.append(line)
+
+    input_file.close()
+
+    output_file = open(self.filename,"w")
+
+    for line in output_lines:
+      output_file.write(line)
+
+    output_file.write("scores:\n")
+
+    for score in self.scores:
+      output_file.write(score[0] + " " + str(score[1]) + " " + str(score[2]) + "\n")
+
+    output_file.close()
+
+  ## Says to add a new score entry. The entry will be added if it will
+  #  be among the top scores.
+  #
+  #  @param name player name (string)
+  #  @param time time in milliseconds (int)
+  #  @param score player score
+
+  def add_score(self, name, time, score):
+    if len(self.scores) < 20:   # record 20 highest scores
+      self.scores.append((name,score,time))
+    else:
+      minimum_index = 0
+      i = 0
+
+      while len(self.scores):
+        if self.scores[i][1] < self.scores[minimum_index][1]:
+          minimum_index = i
+
+        i += 1
+
+      if self.scores[minimum_index][1] < score:
+        del self.scores[minimum_index]
+        self.scores.append((name,score,time))
+        self._sort_scores()
+
   def _sort_scores(self):
-    self.scores.sort(key = lambda item: item[1])
+    self.scores.sort(key = lambda item: item[1],reverse = True)
 
   ## Checks the game state and updates it acoordingly, for example if
   #  a player is standing on an egg, they will take it.
@@ -290,6 +351,8 @@ class Level:
       elif object_at_player_tile.object_type == MapGridObject.OBJECT_FINISH:
         if self.eggs_left <= 0:
           self.state = Level.STATE_WON
+          self.add_score(self.game.name,pygame.time.get_ticks() - self._time_start,self.score)
+          self.save_scores()
           self.player.force_computer.velocity_vector[0] = 0
           self.sound_player.play_win()
       elif object_at_player_tile.object_type == MapGridObject.OBJECT_SPIKES:
@@ -327,6 +390,10 @@ class Level:
     self.player.force_computer.ground_friction = 0
 
   def __init_attributes(self):
+    ## this will contain the name of the file associated with the level
+    self.filename = ""
+    ## game to which the level belongs
+    self.game = None
     ## the level name
     self.name = ""
     ## current score
@@ -387,9 +454,10 @@ class Level:
 
     return self.map_array[x][y]
 
-  def __init__(self, sound_player):
+  def __init__(self, game):
     self.__init_attributes()
-    self.sound_player = sound_player
+    self.sound_player = game.sound_player
+    self.game = game
 
 #-----------------------------------------------------------------------
 
@@ -1211,6 +1279,7 @@ class Game:
   #  @param sounds whether sounds and music will be played
 
   def __init__(self, name, fullscreen, sound):
+    ## the player's name
     self.name = name
     self.fullscreen = fullscreen
     self.sound = sound
@@ -1262,7 +1331,6 @@ class Game:
     self.menu_about.text_lines.append("version " + Game.VERSION)
     self.menu_about.text_lines.append("powered by Python + Pygame")
     self.menu_about.text_lines.append("your name is set to: " + self.name)
-
 
     self.menu_about.text_lines.append("")
     self.menu_about.text_lines.append("arrows = move")
@@ -1444,7 +1512,7 @@ class Game:
             self.state = Game.STATE_MENU_MAIN
           else:
             level_name = "level" + str(self.menu_play.selected_item + 1) + ".lvl"
-            self.level = Level(self.sound_player)
+            self.level = Level(self)
             self.level.load_from_file("resources/" + level_name)
             self.renderer.set_level(self.level)
             self.state = Game.STATE_IN_GAME

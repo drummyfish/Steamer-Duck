@@ -9,12 +9,6 @@ tiles:
 0 ground 3
 1 bricks 1
 
-scores:
-tastyfish 300 4500
-me 500 6000
-someone 860 1021
-bbbb 358 3050
-
 outside:
 0
 
@@ -29,3 +23,14 @@ map:
 .   P   .   .   .   .   .   .   .   .   .   .
 0;1 0;3 0;2 0;2 S   0;3 0;1 0;3 0;3 .   E   .
 0;3 0;2 0;3 0;2 0;3 0;3 0;1 0;2 0;3 0;3 0;3 T
+
+scores:
+someone 860 1021
+player 731 7355
+player 729 7425
+player 719 7806
+player 679 9457
+me 500 6000
+bbbb 358 3050
+tastyfish 300 4500
+player 722 7679

@@ -9,12 +9,6 @@ tiles:
 0 ground 3
 1 bricks 1
 
-scores:
-tastyfish 300 4500
-me 500 6000
-someone 860 1021
-bbbb 358 3050
-
 outside:
 0
 
@@ -35,3 +29,9 @@ map:
 0;3 0;2 S   S   0;2 0;3 .   .   .   .   0;3
 0;3 0;1 0;2 0;3 0;3 .   G;1 .   E   .   .
 0;1 0;2 0;1 0;2 0;1 0;3 0;2 0;2 0;1 0;3 0;1
+
+scores:
+tastyfish 300 4500
+me 500 6000
+someone 860 1021
+bbbb 358 3050
