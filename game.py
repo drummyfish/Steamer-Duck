@@ -1024,7 +1024,7 @@ class Renderer:
     # draw the background image:
 
     for i in range(self.background_repeat_times):
-      result.blit(self.background_image,(i * self.background_image.get_width() * i,0))
+      result.blit(self.background_image,(i * self.background_image.get_width(),0))
 
     # draw the tiles and map object:
     for j in range(self.visible_tile_area[1],self.visible_tile_area[3]):  # render only visible area
