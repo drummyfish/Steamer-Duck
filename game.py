@@ -1265,7 +1265,7 @@ class Game:
   STATE_MENU_ABOUT = 1
   STATE_MENU_PLAY = 2
   STATE_IN_GAME = 3
-  VERSION = "1.0"
+  VERSION = "1.1"
 
   FLYING_FORCE = 2    # what number is substracted from gravity when flapping the ducks wings
 
@@ -1344,6 +1344,8 @@ class Game:
     self.menu_play.items.append("level 4")
     self.menu_play.items.append("level 5")
     self.menu_play.items.append("level 6")
+    self.menu_play.items.append("level 7")
+    self.menu_play.items.append("level 8")
     self.menu_play.items.append("back")
 
   ## Runs the game.
@@ -1518,7 +1520,7 @@ class Game:
           self.key_down = False
 
         if self.key_return:
-          if self.menu_play.selected_item == 6:
+          if self.menu_play.selected_item == 8:
             self.state = Game.STATE_MENU_MAIN
           else:
             level_name = "level" + str(self.menu_play.selected_item + 1) + ".lvl"
